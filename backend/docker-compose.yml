@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  kavachai-backend:
+    build: .
+    container_name: kavachai-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - SQLITE_DB_PATH=./data/kavachai.db
+      - CHROMA_DB_PATH=./data/chroma
+      - OBJECT_STORE_PATH=./data/objects
+      - LLM_MODEL=qwen2.5:3b
+      - EMBEDDING_MODEL=nomic-embed-text
+      - CORS_ORIGINS=["http://localhost:3000"]
+    volumes:
+      - kavachai-data:/app/data
+      - ./corpus:/app/corpus:ro
+    restart: unless-stopped
+
+volumes:
+  kavachai-data:

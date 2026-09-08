@@ -1,4 +1,4 @@
-# API_Reference.md — VIGIL Backend API
+# API_Reference.md — KavachAI Backend API
 **Base URL (prototype):** `http://localhost:8000/api/v1`
 **Format:** JSON over HTTPS/HTTP; streaming endpoints use Server-Sent Events (SSE).
 **Auth (prototype):** lightweight session token from `/session`; see `SRS.md` FR-ACC-1/2 — production RBAC/SSO is future scope.

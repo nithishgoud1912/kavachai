@@ -1,5 +1,5 @@
 # PRD.md — Product Requirements Document
-## VIGIL — Sovereign Industrial Agentic AI Workbench
+## KavachAI — Sovereign Industrial Agentic AI Workbench
 **Problem Statement Reference:** SIH26117 · Mangalore Refinery and Petrochemicals Limited (MRPL)
 **Document Owner:** Team
 **Version:** 1.0
@@ -9,9 +9,9 @@
 
 ## 1. Executive Summary
 
-VIGIL is an on-premise, agentic AI platform that lets refinery engineers ask complex, open-ended questions about plant equipment, safety procedures, and operational history — in natural language — and receive **evidence-backed, verified answers** assembled by a team of specialized AI agents working over the organization's own confidential documents, drawings, and data.
+KavachAI is an on-premise, agentic AI platform that lets refinery engineers ask complex, open-ended questions about plant equipment, safety procedures, and operational history — in natural language — and receive **evidence-backed, verified answers** assembled by a team of specialized AI agents working over the organization's own confidential documents, drawings, and data.
 
-VIGIL is explicitly **not** "a local chatbot over PDFs." The product is the orchestration layer: a Planner that decomposes a question into an investigation, specialist agents that gather evidence from text, images/P&IDs, and structured data, and a Verification Agent that refuses to let a claim stand without evidence. Every model runs inside the corporate network via a local inference layer (Ollama-served open-weight models); nothing confidential leaves the plant.
+KavachAI is explicitly **not** "a local chatbot over PDFs." The product is the orchestration layer: a Planner that decomposes a question into an investigation, specialist agents that gather evidence from text, images/P&IDs, and structured data, and a Verification Agent that refuses to let a claim stand without evidence. Every model runs inside the corporate network via a local inference layer (Ollama-served open-weight models); nothing confidential leaves the plant.
 
 ---
 

@@ -1,0 +1,113 @@
+{
+  "scenario_id": "scenario_1_fire_emergency",
+  "name": "Scenario 1: Fire Emergency SOP",
+  "query": "What should an employee do during a fire emergency?",
+  "status": "complete",
+  "elapsed_sec": 0.39,
+  "timeline_events": [
+    {
+      "agent": "planner",
+      "status": "working",
+      "message": "Analyzing query...",
+      "elapsed_ms": 0
+    },
+    {
+      "agent": "planner",
+      "status": "complete",
+      "message": "Decomposed into 2 sub-tasks",
+      "elapsed_ms": 328
+    },
+    {
+      "agent": "document_agent",
+      "status": "working",
+      "message": "Searching documents...",
+      "elapsed_ms": 328
+    },
+    {
+      "agent": "document_agent",
+      "status": "complete",
+      "message": "Found 5 relevant passages",
+      "elapsed_ms": 380
+    },
+    {
+      "agent": "rag_agent",
+      "status": "working",
+      "message": "Retrieving specifications...",
+      "elapsed_ms": 380
+    },
+    {
+      "agent": "rag_agent",
+      "status": "complete",
+      "message": "Retrieved 3 specification passages",
+      "elapsed_ms": 382
+    },
+    {
+      "agent": "synthesis",
+      "status": "working",
+      "message": "Synthesizing findings from evidence...",
+      "elapsed_ms": 382
+    },
+    {
+      "agent": "synthesis",
+      "status": "complete",
+      "message": "Produced 1 draft findings",
+      "elapsed_ms": 382
+    },
+    {
+      "agent": "verification_agent",
+      "status": "working",
+      "message": "Verifying findings against evidence...",
+      "elapsed_ms": 382
+    },
+    {
+      "agent": "verification_agent",
+      "status": "complete",
+      "message": "Verified: 1 supported findings, confidence 95%",
+      "elapsed_ms": 382
+    }
+  ],
+  "report": {
+    "investigation_id": "a3b8af70-c302-46cf-a17b-40c8c57d0c91",
+    "query": "What should an employee do during a fire emergency?",
+    "overall_status": "attention_required",
+    "condition_summary": "Potential deterioration detected",
+    "findings": [
+      {
+        "id": "f1",
+        "title": "Fire Emergency Immediate Response Protocol",
+        "detail": "1. Raise alarm at nearest manual call point or call emergency extension 5555. 2. Stop hot work and shut down machinery within 10s if safe. 3. Evacuate via emergency routes to Assembly Point B (North Lawn). 4. Report to HSE warden. Do not use elevators or re-enter facility until all-clear.",
+        "verification_status": "supported",
+        "evidence": [
+          {
+            "type": "document",
+            "source_id": "doc_sop01",
+            "label": "Document",
+            "page": 1,
+            "section": null
+          }
+        ]
+      }
+    ],
+    "pid_relationship": null,
+    "conclusion": "The available evidence indicates a condition change over the observed period. Engineering inspection is recommended. The evidence does NOT establish imminent failure.",
+    "confidence": 95,
+    "verification_status": "verified",
+    "generated_at": "2026-09-08T09:14:23.857752+00:00Z"
+  },
+  "confidence": 95,
+  "verification_status": "verified",
+  "plan": {
+    "sub_tasks": [
+      {
+        "agent": "document_agent",
+        "goal": "Find safety procedures and emergency evacuation instructions for fire"
+      },
+      {
+        "agent": "rag_agent",
+        "goal": "Retrieve standard operating procedure for fire emergency"
+      }
+    ],
+    "is_in_scope": true
+  },
+  "cached_at": "2026-09-08T09:14:23.862753+00:00"
+}

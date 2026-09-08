@@ -1,0 +1,179 @@
+{
+  "scenario_id": "scenario_2_pump_p102",
+  "name": "Scenario 2: Pump P-102 Deterioration Investigation",
+  "query": "Investigate Pump P-102 and determine whether its condition has deteriorated.",
+  "status": "complete",
+  "elapsed_sec": 0.02,
+  "timeline_events": [
+    {
+      "agent": "planner",
+      "status": "working",
+      "message": "Analyzing query...",
+      "elapsed_ms": 0
+    },
+    {
+      "agent": "planner",
+      "status": "complete",
+      "message": "Decomposed into 4 sub-tasks",
+      "elapsed_ms": 3
+    },
+    {
+      "agent": "document_agent",
+      "status": "working",
+      "message": "Searching documents...",
+      "elapsed_ms": 4
+    },
+    {
+      "agent": "document_agent",
+      "status": "complete",
+      "message": "Found 5 relevant passages",
+      "elapsed_ms": 5
+    },
+    {
+      "agent": "data_agent",
+      "status": "working",
+      "message": "Analyzing operational data...",
+      "elapsed_ms": 5
+    },
+    {
+      "agent": "vision_agent",
+      "status": "working",
+      "message": "Analyzing P&ID...",
+      "elapsed_ms": 6
+    },
+    {
+      "agent": "vision_agent",
+      "status": "complete",
+      "message": "Found P-102, connected to: T-101, V-204",
+      "elapsed_ms": 6
+    },
+    {
+      "agent": "data_agent",
+      "status": "complete",
+      "message": "Computed trend: increasing (+76%)",
+      "elapsed_ms": 17
+    },
+    {
+      "agent": "rag_agent",
+      "status": "working",
+      "message": "Retrieving specifications...",
+      "elapsed_ms": 17
+    },
+    {
+      "agent": "rag_agent",
+      "status": "complete",
+      "message": "Retrieved 3 specification passages",
+      "elapsed_ms": 19
+    },
+    {
+      "agent": "synthesis",
+      "status": "working",
+      "message": "Synthesizing findings from evidence...",
+      "elapsed_ms": 19
+    },
+    {
+      "agent": "synthesis",
+      "status": "complete",
+      "message": "Produced 2 draft findings",
+      "elapsed_ms": 19
+    },
+    {
+      "agent": "verification_agent",
+      "status": "working",
+      "message": "Verifying findings against evidence...",
+      "elapsed_ms": 19
+    },
+    {
+      "agent": "verification_agent",
+      "status": "complete",
+      "message": "Verified: 2 supported findings, confidence 91%",
+      "elapsed_ms": 19
+    }
+  ],
+  "report": {
+    "investigation_id": "89dc6c2e-3645-4ee2-a366-c3cff5522e4f",
+    "query": "Investigate Pump P-102 and determine whether its condition has deteriorated.",
+    "overall_status": "attention_required",
+    "condition_summary": "Potential deterioration detected",
+    "findings": [
+      {
+        "id": "f1",
+        "title": "Increasing vibration",
+        "detail": "Jan 2.1 \u2192 Apr 2.8 \u2192 Jul 3.7 mm/s (+76%)",
+        "verification_status": "supported",
+        "evidence": [
+          {
+            "type": "document",
+            "source_id": "doc_1122",
+            "label": "Document",
+            "page": 1,
+            "section": null
+          },
+          {
+            "type": "document",
+            "source_id": "doc_1121",
+            "label": "Document",
+            "page": 1,
+            "section": null
+          },
+          {
+            "type": "document",
+            "source_id": "doc_1120",
+            "label": "Document",
+            "page": 1,
+            "section": null
+          }
+        ]
+      },
+      {
+        "id": "f2",
+        "title": "Exceeds attention threshold",
+        "detail": "Current 3.7 mm/s > spec 3.0 mm/s",
+        "verification_status": "supported",
+        "evidence": [
+          {
+            "type": "document",
+            "source_id": "doc_1122",
+            "label": "Document",
+            "page": 1,
+            "section": null
+          }
+        ]
+      }
+    ],
+    "pid_relationship": [
+      "T-101",
+      "P-102",
+      "V-204",
+      "R-101"
+    ],
+    "conclusion": "The available evidence indicates a condition change over the observed period. Engineering inspection is recommended. The evidence does NOT establish imminent failure.",
+    "confidence": 91,
+    "verification_status": "verified",
+    "generated_at": "2026-09-08T09:14:23.890941+00:00Z"
+  },
+  "confidence": 91,
+  "verification_status": "verified",
+  "plan": {
+    "sub_tasks": [
+      {
+        "agent": "document_agent",
+        "goal": "Find inspection reports mentioning P-102"
+      },
+      {
+        "agent": "data_agent",
+        "goal": "Compute vibration trend for P-102, Jan\u2013Jul"
+      },
+      {
+        "agent": "vision_agent",
+        "goal": "Identify P-102 connectivity in P&ID"
+      },
+      {
+        "agent": "rag_agent",
+        "goal": "Retrieve operating threshold for this pump model"
+      }
+    ],
+    "is_in_scope": true
+  },
+  "cached_at": "2026-09-08T09:14:23.893940+00:00"
+}

@@ -1,5 +1,5 @@
 # Design.md — UI/UX Design Specification
-## VIGIL — Sovereign Industrial Agentic AI Workbench
+## KavachAI — Sovereign Industrial Agentic AI Workbench
 **Version:** 1.0
 
 > **⚠️ HARD CONSTRAINT — READ FIRST**
@@ -9,7 +9,7 @@
 
 ## 1. Design Philosophy
 
-VIGIL must **not look like a chatbot demo**. The reference material (`frontend-design-gita__1___1_.html`) — a dark-mode, editorial, high-craft design system — is the foundation for the visual language: a serious, dark, editorial-industrial aesthetic that reads as **control room / engineering instrument**, not consumer chat app. Judges should feel they are looking at a tool an engineer would trust with a safety decision, not a toy.
+KavachAI must **not look like a chatbot demo**. The reference material (`frontend-design-gita__1___1_.html`) — a dark-mode, editorial, high-craft design system — is the foundation for the visual language: a serious, dark, editorial-industrial aesthetic that reads as **control room / engineering instrument**, not consumer chat app. Judges should feel they are looking at a tool an engineer would trust with a safety decision, not a toy.
 
 Three words that should describe every screen: **precise, evidentiary, calm.** No cutesy chat bubbles, no cartoon avatars, no marketing gloss. Typography and spacing carry the authority; color is used sparingly and functionally.
 
@@ -140,14 +140,14 @@ Minimal, per `PRD.md`/`SRS.md` FR-ACC-1. Dark full-bleed background with grain t
 └──────────────────────────────────────────┘
 ```
 - Card: `--surface` on `--bg`, 1px `--border`, 14px radius.
-- Title in Fraunces 700, `--accent` for "VIGIL" wordmark only.
+- Title in Fraunces 700, `--accent` for "KavachAI" wordmark only.
 - The sovereignty line is small, `--text-3`, `--mono` — sets trust tone immediately.
 - Primary button: `--accent` fill, `--bg` text, hover lifts `translateY(-2px)` + brightens.
 
 ### 5.2 Screen 2 — Investigation Workspace (Home)
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ VIGIL          Priya · HSE                    [Audit Log]   │
+│ KavachAI          Priya · HSE                    [Audit Log]   │
 ├────────────────────────────────────────────────────────────┤
 │                                                              │
 │        What do you want to investigate?                    │
@@ -241,7 +241,7 @@ The "money shot" screen for the presentation.
 │  ⚠  INSUFFICIENT EVIDENCE                                    │
 │                                                                │
 │  I couldn't find reliable information about this in the      │
-│  VIGIL knowledge base for this plant.                         │
+│  KavachAI knowledge base for this plant.                         │
 │                                                                │
 │  This system is designed to avoid answering beyond its        │
 │  verified organizational knowledge.                           │

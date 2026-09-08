@@ -1,5 +1,5 @@
 # workflow.md — End-to-End Workflows
-## VIGIL — Sovereign Industrial Agentic AI Workbench
+## KavachAI — Sovereign Industrial Agentic AI Workbench
 
 This document describes the runtime workflows that implement the requirements in `SRS.md` and are exposed via `API_Reference.md`, rendered per `Design.md`.
 
