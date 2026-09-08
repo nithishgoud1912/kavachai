@@ -39,6 +39,7 @@ class Session(Base):
 
     # Relationships
     investigations = relationship("Investigation", back_populates="session")
+    conversations = relationship("Conversation", back_populates="session")
 
 
 # --- FR-ING-1..6: Documents ---
@@ -97,6 +98,7 @@ class Investigation(Base):
 
     # Relationships
     session = relationship("Session", back_populates="investigations")
+    conversations = relationship("Conversation", back_populates="investigation")
 
     __table_args__ = (
         Index("ix_investigations_session", "session_id"),
@@ -125,3 +127,53 @@ class AuditLogEntry(Base):
     status = Column(String, default="started", nullable=False)  # started, completed, insufficient_evidence, failed
     created_at = Column(DateTime, default=utcnow, nullable=False)
     resolved_at = Column(DateTime, nullable=True)
+
+
+# --- Chat: Multi-Turn Conversations ---
+class Conversation(Base):
+    """
+    A chat conversation — either general-purpose AI chat or
+    report-grounded follow-up tied to a specific investigation.
+    """
+    __tablename__ = "conversations"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    session_id = Column(String, ForeignKey("sessions.id"), nullable=False)
+    user = Column(String, nullable=False)
+    department = Column(String, nullable=False)
+    title = Column(String, nullable=False, default="New Chat")
+    type = Column(String, nullable=False, default="general")  # "general" | "report"
+    investigation_id = Column(String, ForeignKey("investigations.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, nullable=False)
+
+    # Relationships
+    session = relationship("Session", back_populates="conversations")
+    investigation = relationship("Investigation", back_populates="conversations")
+    messages = relationship("ChatMessage", back_populates="conversation",
+                           order_by="ChatMessage.created_at")
+
+    __table_args__ = (
+        Index("ix_conversations_session", "session_id"),
+        Index("ix_conversations_type", "type"),
+        Index("ix_conversations_investigation", "investigation_id"),
+    )
+
+
+class ChatMessage(Base):
+    """A single message in a conversation."""
+    __tablename__ = "chat_messages"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False)
+    role = Column(String, nullable=False)  # "user" | "assistant" | "system"
+    content = Column(Text, nullable=False)
+    attachments = Column(JSON, default=list)  # [{filename, url, type, extracted_text}]
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    # Relationships
+    conversation = relationship("Conversation", back_populates="messages")
+
+    __table_args__ = (
+        Index("ix_chat_messages_conversation", "conversation_id"),
+    )

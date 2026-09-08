@@ -50,7 +50,7 @@ async def api_health_check():
 
 
 # --- Route Registration ---
-from app.routers import session, knowledge_base, investigations, evidence, export, audit
+from app.routers import session, knowledge_base, investigations, evidence, export, audit, chat
 
 app.include_router(session.router)
 app.include_router(knowledge_base.router)
@@ -58,4 +58,5 @@ app.include_router(investigations.router)
 app.include_router(evidence.router)
 app.include_router(export.router)
 app.include_router(audit.router)
+app.include_router(chat.router)
 

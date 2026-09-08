@@ -31,6 +31,36 @@ router = APIRouter(prefix="/api/v1", tags=["investigations"])
 _runners: dict[str, InvestigationRunner] = {}
 
 
+@router.get("/investigations")
+async def list_investigations(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List all investigations with summary info for the dashboard.
+    Sorted by created_at DESC (newest first).
+    """
+    result = await db.execute(
+        select(Investigation).order_by(Investigation.created_at.desc())
+    )
+    investigations = result.scalars().all()
+
+    return [
+        {
+            "id": inv.id,
+            "query": inv.query,
+            "status": inv.status,
+            "condition_summary": (inv.report or {}).get("condition_summary", ""),
+            "confidence": inv.confidence,
+            "verification_status": inv.verification_status,
+            "created_at": inv.created_at.isoformat() + "Z",
+            "completed_at": (
+                inv.completed_at.isoformat() + "Z" if inv.completed_at else None
+            ),
+        }
+        for inv in investigations
+    ]
+
+
 async def _run_investigation_background(investigation_id: str):
     """
     Run the investigation pipeline in the background.
@@ -214,7 +244,12 @@ async def get_report(
             raise HTTPException(status_code=202, detail="Investigation still in progress")
         raise HTTPException(status_code=404, detail="Report not available")
 
-    return investigation.report
+    report_dict = dict(investigation.report)
+    if "query" not in report_dict or not report_dict["query"]:
+        report_dict["query"] = investigation.query or "P-102 Investigation"
+    if "findings" not in report_dict or report_dict["findings"] is None:
+        report_dict["findings"] = []
+    return report_dict
 
 
 @router.get("/investigations/{investigation_id}/plan", response_model=InvestigationPlanResponse)

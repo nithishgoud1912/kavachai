@@ -212,3 +212,53 @@ export interface SSEInsufficientEvidence {
   investigation_id: string;
   message: string;
 }
+
+// ─── Chat ───────────────────────────────────────────────────────────
+
+export interface ChatAttachment {
+  filename: string;
+  url: string;
+  type: "document" | "image";
+  extracted_text?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  attachments: ChatAttachment[];
+  created_at: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  type: "general" | "report";
+  investigation_id?: string;
+  created_at: string;
+  updated_at: string;
+  last_message?: string;
+}
+
+export interface ConversationDetail {
+  id: string;
+  title: string;
+  type: "general" | "report";
+  investigation_id?: string;
+  created_at: string;
+  updated_at: string;
+  messages: ChatMessage[];
+}
+
+// ─── Investigation Summary (Dashboard) ──────────────────────────────
+
+export interface InvestigationSummary {
+  id: string;
+  query: string;
+  status: string;
+  condition_summary: string;
+  confidence: number | null;
+  verification_status: string | null;
+  created_at: string;
+  completed_at: string | null;
+}

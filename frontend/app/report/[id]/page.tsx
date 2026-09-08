@@ -11,8 +11,9 @@ import DataTrend from "@/app/components/DataTrend";
 import ConclusionSection from "@/app/components/ConclusionSection";
 import ReportActions from "@/app/components/ReportActions";
 import SourceViewer from "@/app/components/SourceViewer";
+import ChatWindow from "@/app/components/ChatWindow";
 import { useSession } from "@/app/hooks/useSession";
-import { getReport } from "@/app/services/api";
+import { getReport, getConversations, createConversation } from "@/app/services/api";
 import type { Report, OverallStatus } from "@/app/types";
 
 const STATUS_CONFIG: Record<
@@ -48,6 +49,9 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [reportConvId, setReportConvId] = useState<string | null>(null);
+  const [chatLoading, setChatLoading] = useState(false);
 
   useEffect(() => {
     if (!sessionLoading && !isAuthenticated) {
@@ -136,11 +140,13 @@ export default function ReportPage() {
   }
 
   const statusConfig = STATUS_CONFIG[report.overall_status] || STATUS_CONFIG.attention_required;
-  const highlightedEquipment = report.query.match(/P-\d+/)?.[0] || "P-102";
-  const hasVibration = report.findings.some(
+  const safeQuery = report.query || "";
+  const highlightedEquipment = safeQuery.match(/P-\d+/)?.[0] || "P-102";
+  const findings = report.findings || [];
+  const hasVibration = findings.some(
     (f) =>
-      f.title.toLowerCase().includes("vibration") ||
-      f.detail.toLowerCase().includes("mm/s")
+      f.title?.toLowerCase().includes("vibration") ||
+      f.detail?.toLowerCase().includes("mm/s")
   );
 
   const trendData = [
@@ -160,7 +166,7 @@ export default function ReportPage() {
             <div className="flex items-start justify-between flex-wrap gap-4 mb-4">
               <div>
                 <h1 className="font-[family-name:var(--font-playfair)] font-serif text-2xl md:text-3xl text-text font-normal tracking-tight">
-                  {report.query.includes("P-102")
+                  {safeQuery.includes("P-102")
                     ? "P-102 INVESTIGATION"
                     : "INVESTIGATION REPORT"}
                 </h1>
@@ -190,7 +196,7 @@ export default function ReportPage() {
               Key Findings
             </h2>
             <div className="space-y-3">
-              {report.findings.map((finding, i) => (
+              {findings.map((finding, i) => (
                 <FindingCard
                   key={finding.id}
                   finding={finding}
@@ -246,14 +252,14 @@ export default function ReportPage() {
               investigationId={id}
               hasPid={!!report.pid_relationship && report.pid_relationship.length > 0}
               onViewEvidence={() => {
-                const firstEvidence = report.findings[0]?.evidence[0];
+                const firstEvidence = findings[0]?.evidence?.[0];
                 if (firstEvidence) {
                   setActiveSourceId(firstEvidence.source_id);
                 }
               }}
               onViewPid={() => {
-                const pidEvidence = report.findings
-                  .flatMap((f) => f.evidence)
+                const pidEvidence = findings
+                  .flatMap((f) => f.evidence || [])
                   .find((e) => e.type === "pid_drawing");
                 if (pidEvidence) {
                   setActiveSourceId(pidEvidence.source_id);
@@ -266,8 +272,91 @@ export default function ReportPage() {
           <div className="border-t border-border pt-6 mt-4">
             <p className="text-text-3 text-xs mb-1">Original query</p>
             <p className="text-text-2 text-sm font-[family-name:var(--font-mono)]">
-              {report.query}
+              {safeQuery || "N/A"}
             </p>
+          </div>
+
+          {/* ─── Report Chat Panel ─────────────────────────────────────── */}
+          <div className="report-chat-panel reveal-on-scroll" style={{ marginTop: "32px" }}>
+            <div
+              className="report-chat-header"
+              onClick={async () => {
+                if (!chatOpen && !reportConvId) {
+                  setChatLoading(true);
+                  try {
+                    // Check if conversation already exists for this report
+                    const existing = await getConversations("report", id);
+                    if (existing.length > 0) {
+                      setReportConvId(existing[0].id);
+                    }
+                  } catch {
+                    // Will create on first message
+                  } finally {
+                    setChatLoading(false);
+                  }
+                }
+                setChatOpen((prev) => !prev);
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "1rem" }}>💬</span>
+                <div>
+                  <p style={{
+                    fontSize: "0.8125rem",
+                    fontWeight: 600,
+                    color: "var(--color-text)",
+                    margin: 0,
+                  }}>
+                    Ask about this report
+                  </p>
+                  <p style={{
+                    fontSize: "0.6875rem",
+                    color: "var(--color-text-3)",
+                    margin: 0,
+                  }}>
+                    Follow-up questions grounded in the investigation evidence
+                  </p>
+                </div>
+              </div>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                style={{
+                  transition: "transform 0.2s ease",
+                  transform: chatOpen ? "rotate(180deg)" : "rotate(0deg)",
+                }}
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+
+            {chatOpen && (
+              <div className="report-chat-body">
+                {chatLoading ? (
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div className="animate-pulse" style={{
+                      width: "60%",
+                      height: "40px",
+                      background: "var(--color-surface-2)",
+                      borderRadius: "10px",
+                    }} />
+                  </div>
+                ) : (
+                  <ChatWindow
+                    conversationId={reportConvId}
+                    type="report"
+                    investigationId={id}
+                    onConversationCreated={(convId) => setReportConvId(convId)}
+                    compact
+                  />
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>

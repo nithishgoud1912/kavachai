@@ -8,7 +8,21 @@ import type {
   ExportResponse,
   AuditResponse,
   APIError,
+  Conversation,
+  ConversationDetail,
+  ChatAttachment,
+  ChatMessage,
+  InvestigationSummary,
 } from "@/app/types";
+
+// Response type aliases for chat endpoints
+type ChatMessageItem = ChatMessage;
+type UploadedFile = {
+  filename: string;
+  url: string;
+  type: string;
+  extracted_text_preview: string | null;
+};
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "/api/v1";
@@ -223,3 +237,86 @@ export function getDownloadUrl(path: string): string {
   return path;
 }
 
+// ─── Chat Conversations ─────────────────────────────────────────────
+
+export async function getConversations(
+  type?: string,
+  investigationId?: string
+): Promise<Conversation[]> {
+  const params = new URLSearchParams();
+  if (type) params.set("type", type);
+  if (investigationId) params.set("investigation_id", investigationId);
+  const qs = params.toString();
+  const res = await fetch(
+    `${API_BASE}/conversations${qs ? `?${qs}` : ""}`,
+    {
+      headers: { ...getAuthHeaders() },
+      credentials: "include",
+    }
+  );
+  return handleResponse<Conversation[]>(res);
+}
+
+export async function createConversation(data: {
+  session_id: string;
+  title?: string;
+  type?: string;
+  investigation_id?: string;
+}): Promise<Conversation> {
+  const res = await fetch(`${API_BASE}/conversations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(data),
+    credentials: "include",
+  });
+  return handleResponse<Conversation>(res);
+}
+
+export async function getConversation(
+  id: string
+): Promise<ConversationDetail> {
+  const res = await fetch(`${API_BASE}/conversations/${id}`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<ConversationDetail>(res);
+}
+
+export async function sendChatMessage(
+  conversationId: string,
+  content: string,
+  attachments: ChatAttachment[] = []
+): Promise<ChatMessageItem> {
+  const res = await fetch(
+    `${API_BASE}/conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      body: JSON.stringify({ content, attachments }),
+      credentials: "include",
+    }
+  );
+  return handleResponse<ChatMessageItem>(res);
+}
+
+export async function uploadChatFile(
+  formData: FormData
+): Promise<UploadedFile> {
+  const res = await fetch(`${API_BASE}/conversations/upload`, {
+    method: "POST",
+    headers: { ...getAuthHeaders() },
+    body: formData,
+    credentials: "include",
+  });
+  return handleResponse<UploadedFile>(res);
+}
+
+// ─── Investigation List ─────────────────────────────────────────────
+
+export async function getInvestigations(): Promise<InvestigationSummary[]> {
+  const res = await fetch(`${API_BASE}/investigations`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<InvestigationSummary[]>(res);
+}
