@@ -1,5 +1,5 @@
 # SRS.md — Software Requirements Specification
-## VIGIL — Sovereign Industrial Agentic AI Workbench
+## KavachAI — Sovereign Industrial Agentic AI Workbench
 Conforms loosely to IEEE 830 structure. **Version:** 1.0 · **Reference:** SIH26117 (MRPL)
 
 ---
@@ -7,10 +7,10 @@ Conforms loosely to IEEE 830 structure. **Version:** 1.0 · **Reference:** SIH26
 ## 1. Introduction
 
 ### 1.1 Purpose
-This document specifies the functional and non-functional requirements for VIGIL, an on-premise multi-agent AI system that answers complex industrial questions using an organization's private documents, drawings, and operational data, producing evidence-backed and verified answers.
+This document specifies the functional and non-functional requirements for KavachAI, an on-premise multi-agent AI system that answers complex industrial questions using an organization's private documents, drawings, and operational data, producing evidence-backed and verified answers.
 
 ### 1.2 Scope
-VIGIL ingests heterogeneous industrial knowledge (PDFs, scanned documents, P&ID drawings/images, tabular time-series data), orchestrates specialized AI agents to investigate a natural-language query, and returns a structured, cited, confidence-scored report. All inference runs on locally hosted open-weight models; no confidential data is transmitted to third-party APIs. This SRS covers the internal-round prototype scope defined in `PRD.md` §3 and §6.
+KavachAI ingests heterogeneous industrial knowledge (PDFs, scanned documents, P&ID drawings/images, tabular time-series data), orchestrates specialized AI agents to investigate a natural-language query, and returns a structured, cited, confidence-scored report. All inference runs on locally hosted open-weight models; no confidential data is transmitted to third-party APIs. This SRS covers the internal-round prototype scope defined in `PRD.md` §3 and §6.
 
 ### 1.3 Definitions, Acronyms, Abbreviations
 | Term | Meaning |
@@ -39,7 +39,7 @@ Section 2 describes the system in context. Section 3 lists functional requiremen
 ## 2. Overall Description
 
 ### 2.1 Product Perspective
-VIGIL is a new, standalone, on-premise web application. It is composed of:
+KavachAI is a new, standalone, on-premise web application. It is composed of:
 - A **web frontend** (investigation UI).
 - A **backend API** (FastAPI) exposing REST endpoints and a streaming channel for agent progress.
 - An **Agent Orchestration layer** (Planner + specialist agents + Verification Agent).
