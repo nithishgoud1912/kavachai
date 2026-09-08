@@ -36,6 +36,8 @@ class Session(Base):
     name = Column(String, nullable=False)
     department = Column(String, nullable=False)  # FR-ACC-2: department for permission-aware retrieval
     issued_at = Column(DateTime, default=utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    is_revoked = Column(Boolean, default=False, nullable=False)
 
     # Relationships
     investigations = relationship("Investigation", back_populates="session")
@@ -92,6 +94,7 @@ class Investigation(Base):
     report = Column(JSON, nullable=True)  # final verified report
     confidence = Column(Integer, nullable=True)  # 0-100
     verification_status = Column(String, nullable=True)  # verified, partially_verified, unverified
+    events = Column(JSON, default=list)  # SSE streaming timeline events for reconnection
     created_at = Column(DateTime, default=utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
 

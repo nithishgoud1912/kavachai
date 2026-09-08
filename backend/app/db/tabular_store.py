@@ -7,12 +7,16 @@ Each dataset gets its own SQLite table for isolation and queryability.
 Data Agent (Phase 5) queries this store using pandas — never the LLM.
 """
 
+import re
+import asyncio
 import pandas as pd
 import sqlite3
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from app.config import settings
+
+TABLE_NAME_REGEX = re.compile(r"^[a-zA-Z0-9_]+$")
 
 
 class TabularStore:
@@ -30,6 +34,12 @@ class TabularStore:
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
+    def _validate_table_name(self, table_name: str) -> None:
+        """
+        Validate table name against strict regex to prevent SQL injection.
+        """
+        if not table_name or not TABLE_NAME_REGEX.match(table_name):
+            raise ValueError(f"Invalid table name format: {table_name!r}. Only alphanumeric and underscore allowed.")
 
     def ingest_dataframe(self, dataset_id: str, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -44,15 +54,17 @@ class TabularStore:
             {table_name, row_count, columns}
 
         Raises:
-            ValueError if required columns are missing
+            ValueError if required columns are missing or table name invalid
         """
         # Validate required columns
         missing = self.REQUIRED_COLUMNS - set(df.columns)
         if missing:
-            raise ValueError(f"Missing required columns: {missing}. "
-                             f"Expected: {self.REQUIRED_COLUMNS}")
+            raise ValueError(f"Missing required columns: {missing}. Expected: {self.REQUIRED_COLUMNS}")
 
-        table_name = f"dataset_{dataset_id.replace('-', '_')}"
+        # Clean sanitized table name
+        sanitized_id = re.sub(r"[^a-zA-Z0-9_]", "_", dataset_id)
+        table_name = f"dataset_{sanitized_id}"
+        self._validate_table_name(table_name)
 
         conn = self._get_connection()
         try:
@@ -78,9 +90,13 @@ class TabularStore:
         Returns:
             DataFrame of matching rows, sorted by timestamp
         """
+        self._validate_table_name(table_name)
+        if not self.table_exists(table_name):
+            return pd.DataFrame(columns=list(self.REQUIRED_COLUMNS))
+
         conn = self._get_connection()
         try:
-            query = f"SELECT * FROM [{table_name}] WHERE equipment_id = ?"
+            query = f'SELECT * FROM "{table_name}" WHERE equipment_id = ?'
             params: list = [equipment_id]
 
             if metric:
@@ -93,14 +109,37 @@ class TabularStore:
         finally:
             conn.close()
 
-    def get_table_info(self, table_name: str) -> Optional[Dict[str, Any]]:
-        """Get row count and column info for a dataset table."""
+    def get_distinct_metrics(
+        self,
+        table_name: str,
+        equipment_id: Optional[str] = None,
+    ) -> List[str]:
+        """Get distinct metric names available in the table for an equipment."""
+        self._validate_table_name(table_name)
+        if not self.table_exists(table_name):
+            return []
+
         conn = self._get_connection()
         try:
-            cursor = conn.execute(f"SELECT COUNT(*) FROM [{table_name}]")
+            if equipment_id:
+                query = f'SELECT DISTINCT metric FROM "{table_name}" WHERE equipment_id = ?'
+                cursor = conn.execute(query, (equipment_id,))
+            else:
+                query = f'SELECT DISTINCT metric FROM "{table_name}"'
+                cursor = conn.execute(query)
+            return [row[0] for row in cursor.fetchall() if row[0] is not None]
+        finally:
+            conn.close()
+
+    def get_table_info(self, table_name: str) -> Optional[Dict[str, Any]]:
+        """Get row count and column info for a dataset table."""
+        self._validate_table_name(table_name)
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"')
             row_count = cursor.fetchone()[0]
 
-            cursor = conn.execute(f"PRAGMA table_info([{table_name}])")
+            cursor = conn.execute(f'PRAGMA table_info("{table_name}")')
             columns = [row[1] for row in cursor.fetchall()]
 
             return {"table_name": table_name, "row_count": row_count, "columns": columns}
@@ -111,6 +150,9 @@ class TabularStore:
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a dataset table exists."""
+        if not table_name or not TABLE_NAME_REGEX.match(table_name):
+            return False
+
         conn = self._get_connection()
         try:
             cursor = conn.execute(
@@ -120,6 +162,33 @@ class TabularStore:
             return cursor.fetchone() is not None
         finally:
             conn.close()
+
+    # --- Async non-blocking offloading wrappers (asyncio.to_thread) ---
+
+    async def async_query_by_equipment(
+        self,
+        table_name: str,
+        equipment_id: str,
+        metric: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Asynchronously query dataset rows without blocking event loop."""
+        return await asyncio.to_thread(self.query_by_equipment, table_name, equipment_id, metric)
+
+    async def async_ingest_dataframe(self, dataset_id: str, df: pd.DataFrame) -> Dict[str, Any]:
+        """Asynchronously ingest DataFrame without blocking event loop."""
+        return await asyncio.to_thread(self.ingest_dataframe, dataset_id, df)
+
+    async def async_get_table_info(self, table_name: str) -> Optional[Dict[str, Any]]:
+        """Asynchronously fetch table info without blocking event loop."""
+        return await asyncio.to_thread(self.get_table_info, table_name)
+
+    async def async_get_distinct_metrics(
+        self,
+        table_name: str,
+        equipment_id: Optional[str] = None,
+    ) -> List[str]:
+        """Asynchronously fetch distinct metrics without blocking event loop."""
+        return await asyncio.to_thread(self.get_distinct_metrics, table_name, equipment_id)
 
 
 # Singleton instance

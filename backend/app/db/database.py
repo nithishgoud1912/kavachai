@@ -27,9 +27,28 @@ class Base(DeclarativeBase):
 
 
 async def init_db():
-    """Create all tables on startup."""
+    """Create all tables on startup and ensure schema evolution."""
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Auto-migrate newly added columns for SQLite
+        def _migrate_columns(sync_conn):
+            # Check sessions table
+            res = sync_conn.execute(text("PRAGMA table_info(sessions)"))
+            columns = [row[1] for row in res.fetchall()]
+            if "expires_at" not in columns:
+                sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN expires_at DATETIME"))
+            if "is_revoked" not in columns:
+                sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN is_revoked BOOLEAN DEFAULT 0"))
+
+            # Check investigations table
+            res_inv = sync_conn.execute(text("PRAGMA table_info(investigations)"))
+            inv_cols = [row[1] for row in res_inv.fetchall()]
+            if "events" not in inv_cols:
+                sync_conn.execute(text("ALTER TABLE investigations ADD COLUMN events JSON DEFAULT '[]'"))
+
+        await conn.run_sync(_migrate_columns)
 
 
 async def get_db() -> AsyncSession:

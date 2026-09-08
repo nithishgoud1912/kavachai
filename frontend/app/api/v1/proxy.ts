@@ -21,7 +21,8 @@ export async function proxyOrFallback(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 400); // 400ms fast check
+    // 60-second timeout to allow local LLM inference
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     const headers = new Headers();
     req.headers.forEach((value, key) => {
@@ -40,11 +41,10 @@ export async function proxyOrFallback(
     });
     clearTimeout(timeoutId);
 
-    if (res.ok || res.status < 500) {
-      return res;
-    }
-    return fallback(rawBody, parsedJson);
-  } catch {
+    // If backend replied (2xx, 3xx, 4xx, or 5xx), return the actual backend response
+    return res;
+  } catch (err) {
+    console.warn(`[Proxy] Backend at ${BACKEND_URL}${path} unreachable, falling back to mock:`, err);
     return fallback(rawBody, parsedJson);
   }
 }

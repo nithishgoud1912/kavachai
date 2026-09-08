@@ -82,6 +82,7 @@ class InvestigationRunner:
                 "is_in_scope": plan.is_in_scope,
             }
             self.investigation.status = "investigating"
+            self.investigation.events = list(self.events)
             await self.db.commit()
 
             # FR-PLN-2: Out-of-scope check (Workflow E)
@@ -173,6 +174,7 @@ class InvestigationRunner:
             self.investigation.verification_status = ver_result.overall_status
             self.investigation.evidence_bundle = evidence_bundle.model_dump()
             self.investigation.draft_findings = draft_findings.model_dump()
+            self.investigation.events = list(self.events)
             self.investigation.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
 
@@ -233,9 +235,23 @@ class InvestigationRunner:
             equipment_ids = self._extract_equipment_ids()
             equip_id = equipment_ids[0] if equipment_ids else "P-102"
 
+            # Dynamically derive metric from subtask goals, query, or dataset schema
+            combined_text = (self.investigation.query + " " + " ".join(t.goal for t in tasks)).lower()
+            metric = "vibration"
+            metric_candidates = ["vibration", "temperature", "temp", "pressure", "flow", "current", "voltage", "rpm", "speed", "power"]
+            for candidate in metric_candidates:
+                if candidate in combined_text:
+                    metric = "temperature" if candidate == "temp" else candidate
+                    break
+            else:
+                if dataset.table_name:
+                    available_metrics = tabular_store.get_distinct_metrics(dataset.table_name, equip_id)
+                    if available_metrics:
+                        metric = available_metrics[0]
+
             # Run analysis (pure pandas — no LLM)
             analysis = data_agent.analyze(
-                metric="vibration",
+                metric=metric,
                 equipment_id=equip_id,
                 dataset_id=dataset.id,
             )
@@ -366,6 +382,7 @@ class InvestigationRunner:
     async def _insufficient_evidence(self, message: str) -> dict:
         """Handle the insufficient_evidence terminal state."""
         self.investigation.status = "insufficient_evidence"
+        self.investigation.events = list(self.events)
         self.investigation.completed_at = datetime.now(timezone.utc)
         await self.db.commit()
 

@@ -39,3 +39,24 @@ class KnowledgeBaseSummary(BaseModel):
     documents: int
     datasets: int
     pid_drawings: int
+
+
+class GraphNodeCreate(BaseModel):
+    """POST /knowledge-base/graph/nodes request body."""
+    equipment_id: str
+    equipment_type: str = "equipment"
+    label: Optional[str] = None
+
+
+class GraphEdgeCreate(BaseModel):
+    """POST /knowledge-base/graph/edges request body."""
+    from_id: str
+    to_id: str
+    relationship: str = "connected_to"
+    label: Optional[str] = None
+
+
+class GraphResponse(BaseModel):
+    """GET /knowledge-base/graph response."""
+    nodes: List[dict]
+    edges: List[dict]
