@@ -58,25 +58,25 @@ export default function Workspace() {
     <div className="min-h-screen bg-bg flex flex-col">
       <Header />
 
-      <main className="flex-1 flex flex-col items-center justify-center px-6 pb-20">
-        <div className="w-full max-w-2xl space-y-10 animate-fade-in-up">
-          {/* Title */}
-          <h2 className="font-[family-name:var(--font-fraunces)] text-3xl md:text-4xl text-text text-center font-light">
+      <main className="flex-1 flex flex-col items-center justify-center px-6 section-padding">
+        <div className="w-full max-w-2xl space-y-10">
+          {/* Title Hero Element 1 */}
+          <h2 className="font-[family-name:var(--font-playfair)] font-serif text-3xl md:text-4xl text-text text-center font-normal tracking-tight hero-fade-in-up hero-stagger-1">
             What do you want to investigate?
           </h2>
 
-          {/* Query Input */}
-          <form onSubmit={handleSubmit} className="relative">
-            <div className="bg-surface border border-border rounded-xl overflow-hidden
-                            transition-colors duration-200
-                            focus-within:border-border-hi">
+          {/* Query Input Hero Element 2 */}
+          <form onSubmit={handleSubmit} className="relative hero-fade-in-up hero-stagger-2">
+            <div className="bg-surface border border-border rounded-2xl overflow-hidden card-shadow card-hover
+                            transition-all duration-200
+                            focus-within:border-accent">
               <textarea
                 id="investigation-query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Investigate Pump P-102 and determine whether its condition has deteriorated."
                 rows={3}
-                className="w-full bg-transparent px-5 pt-5 pb-14 text-text resize-none
+                className="w-full bg-transparent px-6 pt-6 pb-16 text-text resize-none
                            placeholder:text-text-3 font-[family-name:var(--font-mono)] text-sm
                            focus:outline-none"
                 onKeyDown={(e) => {
@@ -86,14 +86,14 @@ export default function Workspace() {
                   }
                 }}
               />
-              <div className="absolute bottom-3 right-3">
+              <div className="absolute bottom-4 right-4">
                 <button
                   type="submit"
                   disabled={!query.trim() || submitting}
-                  className="bg-accent text-bg font-semibold text-sm px-5 py-2 rounded-lg
+                  className="bg-accent text-[#faf8f5] font-semibold text-sm px-5 py-2.5 rounded-lg
                              flex items-center gap-2
                              transition-all duration-200
-                             hover:brightness-110 hover:-translate-y-0.5
+                             hover:brightness-105 hover:-translate-y-0.5 hover:shadow-md hover:shadow-accent/20
                              disabled:opacity-40 disabled:cursor-not-allowed
                              disabled:hover:translate-y-0 disabled:hover:brightness-100"
                 >
@@ -107,7 +107,6 @@ export default function Workspace() {
                     </>
                   ) : (
                     <>
-                      {/* Compass/target icon — NOT paper-plane */}
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="12" cy="12" r="10" />
                         <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="currentColor" stroke="none" />
@@ -126,13 +125,15 @@ export default function Workspace() {
             </div>
           )}
 
-          {/* Suggested Questions */}
-          <SuggestedQuestions onSelect={(q) => setQuery(q)} />
+          {/* Suggested Questions Hero Element 3 */}
+          <div className="hero-fade-in-up hero-stagger-3">
+            <SuggestedQuestions onSelect={(q) => setQuery(q)} />
+          </div>
         </div>
       </main>
 
-      {/* Knowledge Base Footer */}
-      <footer className="pb-6 text-center">
+      {/* Knowledge Base Footer (Below the fold: reveal on scroll) */}
+      <footer className="pb-8 text-center reveal-on-scroll">
         {kbLoading ? (
           <p className="text-text-3 text-xs font-[family-name:var(--font-mono)]">
             Loading knowledge base…

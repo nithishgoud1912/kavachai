@@ -31,7 +31,7 @@ export default function FindingCard({
   return (
     <div
       className={`bg-surface border border-border rounded-lg border-l-[3px] ${borderColor}
-                  animate-fade-in-up-small`}
+                  card-shadow card-hover animate-fade-in-up-small`}
       style={{ animationDelay: `${(index + 1) * 100}ms` }}
     >
       <div className="p-5 space-y-3">

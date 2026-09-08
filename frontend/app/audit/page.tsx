@@ -63,9 +63,9 @@ export default function AuditLogPage() {
     <div className="min-h-screen bg-bg flex flex-col">
       <Header showBackToWorkspace showAuditLink={false} />
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-6 section-padding">
         <div className="animate-fade-in-up">
-          <h1 className="font-[family-name:var(--font-fraunces)] text-2xl text-text font-light mb-2">
+          <h1 className="font-[family-name:var(--font-playfair)] font-serif text-3xl text-text font-normal mb-2 tracking-tight">
             Audit Log
           </h1>
           <p className="text-text-3 text-sm mb-8">
@@ -89,7 +89,7 @@ export default function AuditLogPage() {
 
         {!loading && !error && (
           <>
-            <div className="overflow-x-auto rounded-xl border border-border">
+            <div className="overflow-x-auto rounded-xl border border-border bg-surface card-shadow">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-surface-2">

@@ -31,8 +31,8 @@ export default function SuggestedQuestions({ onSelect }: SuggestedQuestionsProps
             onClick={() => onSelect(s.query)}
             className="bg-surface-2 border border-border text-text-2 text-sm px-4 py-2.5 rounded-lg
                        transition-all duration-200
-                       hover:border-teal/40 hover:text-teal hover:bg-surface-3
-                       focus-visible:ring-2 focus-visible:ring-teal/30
+                       hover:border-border-hi hover:text-accent hover:bg-surface-3 hover:-translate-y-0.5 hover:shadow-sm
+                       focus-visible:ring-2 focus-visible:ring-accent/30
                        animate-fade-in-up-small"
             style={{ animationDelay: `${(i + 1) * 100}ms` }}
           >

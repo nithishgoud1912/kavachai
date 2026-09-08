@@ -153,13 +153,13 @@ export default function ReportPage() {
     <div className="min-h-screen bg-bg flex flex-col">
       <Header showBackToWorkspace />
 
-      <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-10">
+      <main className="flex-1 max-w-4xl mx-auto w-full px-6 section-padding">
         <div className="space-y-8">
           {/* ─── Report Header ────────────────────────────────────────── */}
-          <div className="animate-fade-in-up">
+          <div className="hero-fade-in-up hero-stagger-1">
             <div className="flex items-start justify-between flex-wrap gap-4 mb-4">
               <div>
-                <h1 className="font-[family-name:var(--font-fraunces)] text-2xl md:text-3xl text-text font-light tracking-wide">
+                <h1 className="font-[family-name:var(--font-playfair)] font-serif text-2xl md:text-3xl text-text font-normal tracking-tight">
                   {report.query.includes("P-102")
                     ? "P-102 INVESTIGATION"
                     : "INVESTIGATION REPORT"}
@@ -178,15 +178,15 @@ export default function ReportPage() {
             </div>
 
             {/* Condition Summary */}
-            <div className="bg-surface border border-border rounded-xl px-6 py-4">
+            <div className="bg-surface border border-border rounded-xl px-6 py-4 card-shadow">
               <p className="text-text-3 text-xs uppercase tracking-wider mb-1">Condition</p>
               <p className="text-text text-lg font-light">{report.condition_summary}</p>
             </div>
           </div>
 
           {/* ─── Key Findings ─────────────────────────────────────────── */}
-          <div className="animate-fade-in-up" style={{ animationDelay: "100ms" }}>
-            <h2 className="font-[family-name:var(--font-fraunces)] text-sm font-semibold text-text-2 tracking-widest uppercase mb-4">
+          <div className="hero-fade-in-up hero-stagger-2">
+            <h2 className="font-[family-name:var(--font-playfair)] font-serif text-sm font-semibold text-text-2 tracking-widest uppercase mb-4">
               Key Findings
             </h2>
             <div className="space-y-3">
@@ -203,7 +203,7 @@ export default function ReportPage() {
 
           {/* ─── Vibration Telemetry Trend ────────────────────────────── */}
           {hasVibration && (
-            <div className="animate-fade-in-up" style={{ animationDelay: "150ms" }}>
+            <div className="reveal-on-scroll">
               <DataTrend
                 title="Pump P-102 Vibration Telemetry (Deterministic Sensor Log)"
                 data={trendData}
@@ -216,7 +216,7 @@ export default function ReportPage() {
 
           {/* ─── P&ID Relationship ────────────────────────────────────── */}
           {report.pid_relationship && report.pid_relationship.length > 0 && (
-            <div className="animate-fade-in-up" style={{ animationDelay: "200ms" }}>
+            <div className="reveal-on-scroll">
               <PidRelationship
                 components={report.pid_relationship}
                 highlighted={highlightedEquipment}
@@ -225,14 +225,13 @@ export default function ReportPage() {
           )}
 
           {/* ─── Conclusion ───────────────────────────────────────────── */}
-          <div className="animate-fade-in-up" style={{ animationDelay: "300ms" }}>
+          <div className="reveal-on-scroll">
             <ConclusionSection conclusion={report.conclusion} />
           </div>
 
           {/* ─── Confidence + Verification ────────────────────────────── */}
           <div
-            className="flex items-center gap-8 flex-wrap animate-fade-in-up"
-            style={{ animationDelay: "400ms" }}
+            className="flex items-center gap-8 flex-wrap reveal-on-scroll"
           >
             <ConfidenceRing confidence={report.confidence} />
             <div className="space-y-2">

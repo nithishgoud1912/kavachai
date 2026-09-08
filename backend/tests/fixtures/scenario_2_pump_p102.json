@@ -3,7 +3,7 @@
   "name": "Scenario 2: Pump P-102 Deterioration Investigation",
   "query": "Investigate Pump P-102 and determine whether its condition has deteriorated.",
   "status": "complete",
-  "elapsed_sec": 0.02,
+  "elapsed_sec": 10.08,
   "timeline_events": [
     {
       "agent": "planner",
@@ -14,126 +14,92 @@
     {
       "agent": "planner",
       "status": "complete",
-      "message": "Decomposed into 4 sub-tasks",
-      "elapsed_ms": 3
+      "message": "Decomposed into 5 sub-tasks",
+      "elapsed_ms": 3105
     },
     {
       "agent": "document_agent",
       "status": "working",
       "message": "Searching documents...",
-      "elapsed_ms": 4
-    },
-    {
-      "agent": "document_agent",
-      "status": "complete",
-      "message": "Found 5 relevant passages",
-      "elapsed_ms": 5
-    },
-    {
-      "agent": "data_agent",
-      "status": "working",
-      "message": "Analyzing operational data...",
-      "elapsed_ms": 5
+      "elapsed_ms": 3105
     },
     {
       "agent": "vision_agent",
       "status": "working",
       "message": "Analyzing P&ID...",
-      "elapsed_ms": 6
+      "elapsed_ms": 3105
     },
     {
       "agent": "vision_agent",
       "status": "complete",
       "message": "Found P-102, connected to: T-101, V-204",
-      "elapsed_ms": 6
+      "elapsed_ms": 3105
     },
     {
-      "agent": "data_agent",
+      "agent": "document_agent",
       "status": "complete",
-      "message": "Computed trend: increasing (+76%)",
-      "elapsed_ms": 17
+      "message": "Found 15 relevant passages",
+      "elapsed_ms": 3132
     },
     {
       "agent": "rag_agent",
       "status": "working",
       "message": "Retrieving specifications...",
-      "elapsed_ms": 17
+      "elapsed_ms": 3132
     },
     {
       "agent": "rag_agent",
       "status": "complete",
       "message": "Retrieved 3 specification passages",
-      "elapsed_ms": 19
+      "elapsed_ms": 3141
     },
     {
       "agent": "synthesis",
       "status": "working",
       "message": "Synthesizing findings from evidence...",
-      "elapsed_ms": 19
+      "elapsed_ms": 3141
     },
     {
       "agent": "synthesis",
       "status": "complete",
-      "message": "Produced 2 draft findings",
-      "elapsed_ms": 19
+      "message": "Produced 1 draft findings",
+      "elapsed_ms": 7277
     },
     {
       "agent": "verification_agent",
       "status": "working",
       "message": "Verifying findings against evidence...",
-      "elapsed_ms": 19
+      "elapsed_ms": 7277
     },
     {
       "agent": "verification_agent",
       "status": "complete",
-      "message": "Verified: 2 supported findings, confidence 91%",
-      "elapsed_ms": 19
+      "message": "Verified: 1 supported findings, confidence 95%",
+      "elapsed_ms": 10050
     }
   ],
   "report": {
-    "investigation_id": "89dc6c2e-3645-4ee2-a366-c3cff5522e4f",
+    "investigation_id": "c0d707a5-4d90-4698-ac20-c815dfeda9cb",
     "query": "Investigate Pump P-102 and determine whether its condition has deteriorated.",
     "overall_status": "attention_required",
     "condition_summary": "Potential deterioration detected",
     "findings": [
       {
         "id": "f1",
-        "title": "Increasing vibration",
-        "detail": "Jan 2.1 \u2192 Apr 2.8 \u2192 Jul 3.7 mm/s (+76%)",
+        "title": "Pump P-102 operates within vibration threshold limits",
+        "detail": "Continuous acceptable vibration velocity (RMS) is below 2.8 mm/s, which is below the attention threshold of 3.0 mm/s for continuous operation of Pump P-102.",
         "verification_status": "supported",
         "evidence": [
           {
-            "type": "document",
-            "source_id": "doc_1122",
-            "label": "Document",
-            "page": 1,
+            "type": "pid_drawing",
+            "source_id": "pid_demo",
+            "label": "P&ID Drawing",
+            "page": null,
             "section": null
           },
           {
             "type": "document",
-            "source_id": "doc_1121",
-            "label": "Document",
-            "page": 1,
-            "section": null
-          },
-          {
-            "type": "document",
-            "source_id": "doc_1120",
-            "label": "Document",
-            "page": 1,
-            "section": null
-          }
-        ]
-      },
-      {
-        "id": "f2",
-        "title": "Exceeds attention threshold",
-        "detail": "Current 3.7 mm/s > spec 3.0 mm/s",
-        "verification_status": "supported",
-        "evidence": [
-          {
-            "type": "document",
-            "source_id": "doc_1122",
+            "source_id": "doc_1140",
             "label": "Document",
             "page": 1,
             "section": null
@@ -148,32 +114,36 @@
       "R-101"
     ],
     "conclusion": "The available evidence indicates a condition change over the observed period. Engineering inspection is recommended. The evidence does NOT establish imminent failure.",
-    "confidence": 91,
+    "confidence": 95,
     "verification_status": "verified",
-    "generated_at": "2026-09-08T09:14:23.890941+00:00Z"
+    "generated_at": "2026-09-08T09:48:48.588695+00:00Z"
   },
-  "confidence": 91,
+  "confidence": 95,
   "verification_status": "verified",
   "plan": {
     "sub_tasks": [
       {
         "agent": "document_agent",
-        "goal": "Find inspection reports mentioning P-102"
+        "goal": "Find inspection reports and maintenance logs related to Pump P-102."
       },
       {
-        "agent": "data_agent",
-        "goal": "Compute vibration trend for P-102, Jan\u2013Jul"
+        "agent": "document_agent",
+        "goal": "Locate the safety procedures and operating procedures for Pump P-102."
       },
       {
-        "agent": "vision_agent",
-        "goal": "Identify P-102 connectivity in P&ID"
+        "agent": "document_agent",
+        "goal": "Identify any recent failure reports or anomalies related to Pump P-102."
       },
       {
         "agent": "rag_agent",
-        "goal": "Retrieve operating threshold for this pump model"
+        "goal": "Retrieve the specification limits for Pump P-102's operating parameters from its manual."
+      },
+      {
+        "agent": "vision_agent",
+        "goal": "Identify the P&ID drawing of Pump P-102 and its connections to other equipment."
       }
     ],
     "is_in_scope": true
   },
-  "cached_at": "2026-09-08T09:14:23.893940+00:00"
+  "cached_at": "2026-09-08T09:48:48.622117+00:00"
 }

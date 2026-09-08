@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSession } from "@/app/hooks/useSession";
 import { useRouter } from "next/navigation";
@@ -15,6 +16,17 @@ export default function Header({
 }: HeaderProps) {
   const { session, logout } = useSession();
   const router = useRouter();
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 8);
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -22,12 +34,18 @@ export default function Header({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-bg/80 backdrop-blur-md border-b border-border">
+    <header
+      className={`sticky top-0 z-40 transition-all duration-300 border-b ${
+        isScrolled
+          ? "bg-bg/85 backdrop-blur-[16px] border-border shadow-[0_1px_3px_rgba(45,42,38,0.05)]"
+          : "bg-transparent backdrop-blur-none border-transparent"
+      }`}
+    >
       <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
         {/* Left — Logo */}
         <div className="flex items-center gap-6">
-          <Link href="/workspace" className="flex items-center gap-2">
-            <span className="font-[family-name:var(--font-fraunces)] text-accent text-lg font-bold tracking-[0.15em]">
+          <Link href="/workspace" className="flex items-center gap-2 group">
+            <span className="font-[family-name:var(--font-playfair)] font-serif text-accent text-xl font-bold tracking-tight transition-transform duration-200 group-hover:scale-[1.02]">
               KavachAI
             </span>
           </Link>

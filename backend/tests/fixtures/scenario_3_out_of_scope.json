@@ -3,7 +3,7 @@
   "name": "Scenario 3: Out-of-Scope Hallucination Refusal",
   "query": "What is the current price of crude oil?",
   "status": "insufficient_evidence",
-  "elapsed_sec": 0.01,
+  "elapsed_sec": 0.42,
   "timeline_events": [
     {
       "agent": "planner",
@@ -15,7 +15,7 @@
       "agent": "planner",
       "status": "complete",
       "message": "Query is out of scope",
-      "elapsed_ms": 5
+      "elapsed_ms": 418
     }
   ],
   "report": null,
@@ -25,5 +25,5 @@
     "sub_tasks": [],
     "is_in_scope": false
   },
-  "cached_at": "2026-09-08T09:14:23.912941+00:00"
+  "cached_at": "2026-09-08T09:48:49.052509+00:00"
 }
