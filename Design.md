@@ -241,7 +241,7 @@ The "money shot" screen for the presentation.
 │  ⚠  INSUFFICIENT EVIDENCE                                    │
 │                                                                │
 │  I couldn't find reliable information about this in the      │
-│  KavachAI knowledge base for this plant.                         │
+│  KavachAI knowledge base for this plant.                      │
 │                                                                │
 │  This system is designed to avoid answering beyond its        │
 │  verified organizational knowledge.                           │
