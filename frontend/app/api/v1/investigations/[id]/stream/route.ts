@@ -1,12 +1,45 @@
 export const dynamic = "force-dynamic";
 
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000/api/v1";
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const encoder = new TextEncoder();
 
+  // 1. Try to proxy live SSE stream from the FastAPI backend
+  try {
+    const targetUrl = `${BACKEND_URL}/investigations/${id}/stream`;
+    const headers: Record<string, string> = {
+      Accept: "text/event-stream",
+    };
+    const auth = req.headers.get("authorization");
+    if (auth) {
+      headers["Authorization"] = auth;
+    }
+
+    const backendRes = await fetch(targetUrl, {
+      headers,
+      signal: req.signal,
+    });
+
+    if (backendRes.ok && backendRes.body) {
+      return new Response(backendRes.body, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+  } catch (err) {
+    console.warn(`[Stream Proxy] Backend stream at ${BACKEND_URL}/investigations/${id}/stream unreachable:`, err);
+  }
+
+  // 2. Offline / disconnected fallback demo stream
+  const encoder = new TextEncoder();
   let isClosed = false;
 
   const stream = new ReadableStream({
@@ -31,7 +64,7 @@ export async function GET(
           data: {
             agent: "planner",
             status: "working",
-            message: "Decomposing query into sub-tasks...",
+            message: "Decomposing query into sub-tasks (demo mode)...",
             elapsed_ms: 120,
           },
           delay: 200,
@@ -51,7 +84,7 @@ export async function GET(
           data: {
             agent: "document_agent",
             status: "working",
-            message: "Scanning inspection reports for P-102...",
+            message: "Scanning inspection reports for equipment...",
             elapsed_ms: 600,
           },
           delay: 600,
@@ -61,7 +94,7 @@ export async function GET(
           data: {
             agent: "document_agent",
             status: "complete",
-            message: "Found 4 inspection reports (Jan, Apr, Jul)",
+            message: "Found inspection reports in knowledge base",
             elapsed_ms: 1100,
           },
           delay: 700,
@@ -71,7 +104,7 @@ export async function GET(
           data: {
             agent: "data_agent",
             status: "working",
-            message: "Computing vibration trend Jan–Jul (deterministic)...",
+            message: "Computing telemetry trend (deterministic)...",
             elapsed_ms: 1400,
           },
           delay: 600,
@@ -81,7 +114,7 @@ export async function GET(
           data: {
             agent: "data_agent",
             status: "complete",
-            message: "Vibration increase: 2.1 → 3.7 mm/s (+76%)",
+            message: "Telemetry trend analysis complete",
             elapsed_ms: 1850,
           },
           delay: 700,
@@ -91,7 +124,7 @@ export async function GET(
           data: {
             agent: "vision_agent",
             status: "working",
-            message: "Analyzing P&ID refinery schematic for P-102...",
+            message: "Analyzing P&ID refinery schematic...",
             elapsed_ms: 2100,
           },
           delay: 600,
@@ -101,7 +134,7 @@ export async function GET(
           data: {
             agent: "vision_agent",
             status: "complete",
-            message: "Verified P&ID line: T-101 → P-102 → V-204 → R-101",
+            message: "Verified P&ID connectivity chain",
             elapsed_ms: 2600,
           },
           delay: 700,
@@ -121,7 +154,7 @@ export async function GET(
           data: {
             agent: "rag_agent",
             status: "complete",
-            message: "Advisory threshold: 3.0 mm/s (Breached)",
+            message: "Operating threshold retrieved",
             elapsed_ms: 3200,
           },
           delay: 600,
@@ -141,7 +174,7 @@ export async function GET(
           data: {
             agent: "verification_agent",
             status: "complete",
-            message: "2 findings verified supported, 91% confidence",
+            message: "Findings verified against knowledge base",
             elapsed_ms: 3950,
           },
           delay: 600,

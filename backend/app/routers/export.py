@@ -7,35 +7,64 @@ Endpoint: POST /investigations/{id}/export (API_Reference.md §6)
 import uuid
 import os
 import re
+import time
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.database import get_db
-from app.db.sql_models import Investigation
+from app.db.sql_models import Investigation, Session as SessionModel
 from app.models.report import ExportRequest, ExportResponse
+from app.deps import get_current_session, get_optional_session
 
 router = APIRouter(prefix="/api/v1", tags=["export"])
 
 # Resolve EXPORTS_DIR reliably relative to backend root
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-EXPORTS_DIR = BACKEND_DIR / "data" / "exports"
+EXPORTS_DIR = (BACKEND_DIR / "data" / "exports").resolve()
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+FILENAME_REGEX = re.compile(r"^exp_[a-zA-Z0-9_\-]+\.pdf$")
+
+
+def _cleanup_old_exports(max_age_hours: int = 24, max_files: int = 100):
+    """
+    Clean up exported PDFs older than max_age_hours or if total count exceeds max_files.
+    """
+    try:
+        now = time.time()
+        max_age_sec = max_age_hours * 3600
+        pdf_files = list(EXPORTS_DIR.glob("*.pdf"))
+
+        # Sort by modification time ascending (oldest first)
+        pdf_files.sort(key=lambda p: p.stat().st_mtime)
+
+        for p in pdf_files:
+            file_age = now - p.stat().st_mtime
+            if file_age > max_age_sec or len(pdf_files) > max_files:
+                try:
+                    p.unlink(missing_ok=True)
+                    pdf_files.remove(p)
+                except OSError:
+                    pass
+    except Exception:
+        pass
 
 
 @router.post("/investigations/{investigation_id}/export", response_model=ExportResponse)
 async def export_report(
     investigation_id: str,
     body: ExportRequest,
+    background_tasks: BackgroundTasks,
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Export investigation report as PDF.
     Implements: FR-RPT-4, workflow.md §3
-
-    Design.md note: no default blue hyperlink styling in PDF.
     """
     result = await db.execute(
         select(Investigation).where(Investigation.id == investigation_id)
@@ -47,7 +76,10 @@ async def export_report(
     if not investigation.report:
         raise HTTPException(status_code=404, detail="Report not available")
 
-    export_id = f"exp_{uuid.uuid4().hex[:4]}"
+    # Trigger background cleanup of old export files
+    background_tasks.add_task(_cleanup_old_exports)
+
+    export_id = f"exp_{uuid.uuid4().hex[:8]}"
 
     if body.format == "pdf":
         pdf_path = EXPORTS_DIR / f"{export_id}.pdf"
@@ -62,16 +94,25 @@ async def export_report(
 
 
 @router.get("/exports/{filename}")
-async def download_export(filename: str):
-    """Serve exported files."""
-    file_path = EXPORTS_DIR / filename
-    if not file_path.exists():
-        # Fallback check relative to cwd
-        alt_path = Path("./data/exports") / filename
-        if alt_path.exists():
-            file_path = alt_path
-        else:
-            raise HTTPException(status_code=404, detail="Export file not found")
+async def download_export(
+    filename: str,
+    current_session: Optional[SessionModel] = Depends(get_optional_session),
+):
+    """
+    Serve exported PDF files with strict path-traversal protection.
+    """
+    # Reject path traversal and invalid characters
+    if not FILENAME_REGEX.match(filename):
+        raise HTTPException(status_code=400, detail="Invalid export filename format")
+
+    file_path = (EXPORTS_DIR / filename).resolve()
+
+    # Ensure resolved path is strictly within the exports directory
+    if not str(file_path).startswith(str(EXPORTS_DIR)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Export file not found")
 
     return FileResponse(
         path=str(file_path),

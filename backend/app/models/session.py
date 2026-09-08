@@ -19,3 +19,16 @@ class SessionResponse(BaseModel):
     name: str
     department: str
     issued_at: str
+    expires_at: Optional[str] = None
+
+
+class SessionRevokeRequest(BaseModel):
+    """POST /session/revoke request body."""
+    session_id: Optional[str] = None
+
+
+class SessionRevokeResponse(BaseModel):
+    """POST /session/revoke response body."""
+    session_id: str
+    revoked: bool
+    message: str

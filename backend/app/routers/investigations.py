@@ -10,11 +10,11 @@ Endpoints: API_Reference.md §4
 
 import asyncio
 import json
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from app.db.database import get_db, async_session
 from app.db.sql_models import Investigation, Session as SessionModel
@@ -24,10 +24,11 @@ from app.models.investigation import (
 )
 from app.orchestrator.investigation import InvestigationRunner
 from app.services.audit_service import create_audit_entry, resolve_audit_entry
+from app.deps import get_current_session, get_optional_session
 
 router = APIRouter(prefix="/api/v1", tags=["investigations"])
 
-# In-memory store for investigation runners (NFR-REL-2: server-side execution)
+# In-memory store for active investigation runners
 _runners: dict[str, InvestigationRunner] = {}
 
 
@@ -78,11 +79,11 @@ async def _run_investigation_background(investigation_id: str):
         _runners[investigation_id] = runner
 
         try:
-            result = await runner.run()
+            res = await runner.run()
 
             # Resolve audit entry
-            status = "completed" if result.get("type") == "investigation_complete" else "insufficient_evidence"
-            report = result.get("report", {})
+            status = "completed" if res.get("type") == "investigation_complete" else "insufficient_evidence"
+            report = res.get("report", {})
 
             await resolve_audit_entry(
                 db=db,
@@ -98,35 +99,54 @@ async def _run_investigation_background(investigation_id: str):
             await resolve_audit_entry(
                 db=db,
                 investigation_id=investigation_id,
-                agents_invoked=runner.agents_invoked,
+                agents_invoked=runner.agents_invoked if 'runner' in locals() else [],
                 verification_status=None,
                 confidence=None,
                 status="failed",
             )
+        finally:
+            # Clean up runner from active runners after a grace period
+            asyncio.create_task(_cleanup_runner(investigation_id))
+
+
+async def _cleanup_runner(investigation_id: str, delay_seconds: int = 60):
+    """Retain runner briefly in memory for active streams before cleanup."""
+    await asyncio.sleep(delay_seconds)
+    _runners.pop(investigation_id, None)
 
 
 @router.post("/investigations", response_model=InvestigationCreateResponse, status_code=202)
 async def create_investigation(
     body: InvestigationCreate,
     background_tasks: BackgroundTasks,
+    current_session: Optional[SessionModel] = Depends(get_optional_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Start a new investigation.
+    Start a new investigation with session validation.
     Implements: FR-PLN-1, API_Reference.md §4 POST /investigations
     """
-    # Validate session
-    session_result = await db.execute(
-        select(SessionModel).where(SessionModel.id == body.session_id)
-    )
-    session = session_result.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid session_id")
+    from datetime import datetime, timezone
+    active_session = current_session
+    if not active_session:
+        if not body.session_id:
+            raise HTTPException(status_code=401, detail="Authentication required: No session provided")
+        sess_res = await db.execute(select(SessionModel).where(SessionModel.id == body.session_id))
+        active_session = sess_res.scalar_one_or_none()
+        if not active_session:
+            raise HTTPException(status_code=401, detail="Invalid session_id")
+        if getattr(active_session, "is_revoked", False):
+            raise HTTPException(status_code=401, detail="Session has been revoked")
+        if active_session.expires_at:
+            now = datetime.now(timezone.utc)
+            exp = active_session.expires_at if active_session.expires_at.tzinfo else active_session.expires_at.replace(tzinfo=timezone.utc)
+            if now > exp:
+                raise HTTPException(status_code=401, detail="Session has expired")
 
     # Create investigation
     investigation = Investigation(
         query=body.query,
-        session_id=body.session_id,
+        session_id=active_session.id,
         status="planning",
     )
     db.add(investigation)
@@ -137,8 +157,8 @@ async def create_investigation(
     await create_audit_entry(
         db=db,
         investigation_id=investigation.id,
-        user=session.name,
-        department=session.department,
+        user=active_session.name,
+        department=active_session.department,
         query=body.query,
     )
 
@@ -155,10 +175,11 @@ async def create_investigation(
 @router.get("/investigations/{investigation_id}/stream")
 async def stream_investigation(
     investigation_id: str,
+    current_session: Optional[SessionModel] = Depends(get_optional_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Stream live agent timeline via SSE.
+    Stream live agent timeline via SSE with SQLite event persistence for reconnection.
     Implements: API_Reference.md §4 GET /investigations/{id}/stream, NFR-PERF-3
     """
     # Verify investigation exists
@@ -176,11 +197,23 @@ async def stream_investigation(
             runner = _runners.get(investigation_id)
 
             if runner:
-                # Emit any new events
+                # Emit any new events from active memory runner
                 while last_event_index < len(runner.events):
                     event = runner.events[last_event_index]
                     yield f"event: agent_update\ndata: {json.dumps(event)}\n\n"
                     last_event_index += 1
+            else:
+                # Fallback to persisted database events if runner restarted
+                async with async_session() as db_events:
+                    inv_res = await db_events.execute(
+                        select(Investigation).where(Investigation.id == investigation_id)
+                    )
+                    inv_row = inv_res.scalar_one_or_none()
+                    if inv_row and inv_row.events:
+                        while last_event_index < len(inv_row.events):
+                            event = inv_row.events[last_event_index]
+                            yield f"event: agent_update\ndata: {json.dumps(event)}\n\n"
+                            last_event_index += 1
 
             # Check if investigation is complete
             async with async_session() as check_db:
@@ -212,6 +245,7 @@ async def stream_investigation(
 @router.get("/investigations/{investigation_id}/report")
 async def get_report(
     investigation_id: str,
+    current_session: Optional[SessionModel] = Depends(get_optional_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -255,6 +289,7 @@ async def get_report(
 @router.get("/investigations/{investigation_id}/plan", response_model=InvestigationPlanResponse)
 async def get_plan(
     investigation_id: str,
+    current_session: Optional[SessionModel] = Depends(get_optional_session),
     db: AsyncSession = Depends(get_db),
 ):
     """

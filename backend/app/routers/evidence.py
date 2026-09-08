@@ -4,15 +4,20 @@ Implements: FR-RPT-3 (click evidence reference -> view source)
 Endpoint: GET /evidence/{source_id} (API_Reference.md §5)
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+import re
+import pandas as pd
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.database import get_db
-from app.db.sql_models import Document, Dataset
+from app.db.sql_models import Document, Dataset, Session as SessionModel
 from app.db.object_store import object_store
 from app.db.tabular_store import tabular_store
+from app.db.graph_store import graph_store
 from app.models.evidence import EvidenceResponse
+from app.deps import get_current_session
 
 router = APIRouter(prefix="/api/v1", tags=["evidence"])
 
@@ -20,7 +25,9 @@ router = APIRouter(prefix="/api/v1", tags=["evidence"])
 @router.get("/evidence/{source_id}", response_model=EvidenceResponse)
 async def get_evidence(
     source_id: str,
-    page: int = None,
+    page: Optional[int] = Query(None),
+    equipment_id: Optional[str] = Query(None),
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -67,11 +74,24 @@ async def get_evidence(
     ds = ds_result.scalar_one_or_none()
 
     if ds:
-        # Return dataset rows
-        import pandas as pd
+        # Resolve target equipment ID dynamically
+        target_equipment = equipment_id
+        if not target_equipment and ds.table_name and tabular_store.table_exists(ds.table_name):
+            try:
+                conn = tabular_store._get_connection()
+                cursor = conn.execute(f'SELECT DISTINCT equipment_id FROM "{ds.table_name}" LIMIT 1')
+                row = cursor.fetchone()
+                conn.close()
+                if row and row[0]:
+                    target_equipment = row[0]
+            except Exception:
+                pass
+
+        target_equipment = target_equipment or "P-102"
+
         rows = []
         if ds.table_name:
-            df = tabular_store.query_by_equipment(ds.table_name, "P-102")  # TODO: parameterize
+            df = tabular_store.query_by_equipment(ds.table_name, target_equipment)
             rows = df.to_dict(orient="records")
 
         return EvidenceResponse(
@@ -82,15 +102,23 @@ async def get_evidence(
         )
 
     # Check if it's a P&ID source
-    if source_id.startswith("pid_"):
-        from app.db.graph_store import graph_store
-        connections = graph_store.get_connections("P-102")  # TODO: parameterize
+    if source_id.startswith("pid_") or source_id == "pid_drawing":
+        target_equipment = equipment_id
+        if not target_equipment:
+            # Check if source_id contains equipment suffix (e.g. pid_P-102)
+            suffix_match = re.search(r"pid_([A-Z]-\d{2,4})", source_id)
+            if suffix_match:
+                target_equipment = suffix_match.group(1)
+            else:
+                target_equipment = "P-102"
+
+        connections = graph_store.get_connections(target_equipment)
 
         return EvidenceResponse(
             source_id=source_id,
             type="pid_drawing",
             filename="P&ID Drawing",
-            highlighted_component="P-102",
+            highlighted_component=target_equipment,
             connections=connections,
         )
 
