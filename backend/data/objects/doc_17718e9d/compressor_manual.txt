@@ -1,4 +1,0 @@
-Equipment: Compressor C-301
-Operating pressure: 42 bar
-Critical vibration threshold: 4.5 mm/s.
-Oil change interval: 5000 hours.
