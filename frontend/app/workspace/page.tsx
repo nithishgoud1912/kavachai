@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, FormEvent, useCallback } from "react";
+import { useState, useEffect, FormEvent, useCallback, useRef, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/app/components/Sidebar";
 import ChatWindow from "@/app/components/ChatWindow";
@@ -13,8 +13,9 @@ import {
   getKnowledgeBaseGraph,
   uploadDocument,
   uploadDataset,
+  uploadInvestigationFiles,
 } from "@/app/services/api";
-import type { KnowledgeBaseSummary, KnowledgeBaseGraph } from "@/app/types";
+import type { KnowledgeBaseSummary, KnowledgeBaseGraph, AttachmentItem } from "@/app/types";
 
 type DashboardView = "chat" | "investigation" | "knowledge";
 
@@ -28,6 +29,10 @@ export default function Workspace() {
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [investigationFiles, setInvestigationFiles] = useState<{ file: File; path: string }[]>([]);
+  const [uploadingInvFiles, setUploadingInvFiles] = useState(false);
+  const invFileInputRef = useRef<HTMLInputElement>(null);
+  const invFolderInputRef = useRef<HTMLInputElement>(null);
 
   // Knowledge Base mode state
   const [kbSummary, setKbSummary] = useState<KnowledgeBaseSummary | null>(null);
@@ -120,6 +125,30 @@ export default function Workspace() {
     // Sidebar reloads via the global __reloadSidebar ref
   }
 
+  function handleFilesSelect(e: ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const added = Array.from(e.target.files).map((f) => ({
+      file: f,
+      path: (f as unknown as { webkitRelativePath?: string }).webkitRelativePath || f.name,
+    }));
+    setInvestigationFiles((prev) => [...prev, ...added]);
+    e.target.value = "";
+  }
+
+  function handleFolderSelect(e: ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const added = Array.from(e.target.files).map((f) => ({
+      file: f,
+      path: (f as unknown as { webkitRelativePath?: string }).webkitRelativePath || f.name,
+    }));
+    setInvestigationFiles((prev) => [...prev, ...added]);
+    e.target.value = "";
+  }
+
+  function removeInvestigationFile(index: number) {
+    setInvestigationFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
   async function handleInvestigationSubmit(e: FormEvent) {
     e.preventDefault();
     if (!query.trim() || !session) return;
@@ -128,7 +157,21 @@ export default function Workspace() {
     setError(null);
 
     try {
-      const investigation = await createInvestigation(query.trim(), session.session_id);
+      let attachments: AttachmentItem[] | undefined;
+      if (investigationFiles.length > 0) {
+        setUploadingInvFiles(true);
+        try {
+          const files = investigationFiles.map((item) => item.file);
+          const paths = investigationFiles.map((item) => item.path);
+          attachments = await uploadInvestigationFiles(files, paths);
+        } catch (uploadErr) {
+          console.warn("Investigation files upload failed, proceeding without attachments:", uploadErr);
+        } finally {
+          setUploadingInvFiles(false);
+        }
+      }
+
+      const investigation = await createInvestigation(query.trim(), session.session_id, attachments);
       router.push(`/investigation/${investigation.investigation_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start investigation");
@@ -335,16 +378,178 @@ export default function Workspace() {
                       }
                     }}
                   />
-                  <div style={{ position: "absolute", bottom: "16px", right: "16px" }}>
+                  {/* Selected attachment chips preview */}
+                  {investigationFiles.length > 0 && (
+                    <div
+                      style={{
+                        padding: "10px 20px",
+                        borderTop: "1px solid var(--color-border)",
+                        background: "rgba(255, 255, 255, 0.02)",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "6px",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span style={{ fontSize: "0.75rem", color: "var(--color-text-3)", marginRight: "4px" }}>
+                        Attachments:
+                      </span>
+                      {investigationFiles.map((item, idx) => (
+                        <span
+                          key={idx}
+                          className="attachment-chip"
+                          title={item.path}
+                          style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "0.75rem" }}
+                        >
+                          <span>{item.path.includes("/") ? "📁" : "📄"}</span>
+                          <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.path}
+                          </span>
+                          <span style={{ opacity: 0.5, fontSize: "0.6875rem" }}>
+                            ({(item.file.size / 1024).toFixed(0)}KB)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeInvestigationFile(idx)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "inherit",
+                              cursor: "pointer",
+                              opacity: 0.7,
+                              padding: "0 2px",
+                            }}
+                            title="Remove file"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      {investigationFiles.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setInvestigationFiles([])}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--color-text-3)",
+                            fontSize: "0.6875rem",
+                            textDecoration: "underline",
+                            cursor: "pointer",
+                            padding: "2px 6px",
+                          }}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Hidden file & folder pickers */}
+                  <input
+                    ref={invFileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.txt,.csv,.docx,.png,.jpg,.jpeg,.webp,.md,.json"
+                    style={{ display: "none" }}
+                    onChange={handleFilesSelect}
+                  />
+                  <input
+                    ref={invFolderInputRef}
+                    type="file"
+                    {...{ webkitdirectory: "", directory: "", multiple: true }}
+                    style={{ display: "none" }}
+                    onChange={handleFolderSelect}
+                  />
+
+                  {/* Actions row with file/folder buttons and Investigate submit */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "12px 18px",
+                      borderTop: "1px solid var(--color-border)",
+                      background: "rgba(0,0,0,0.1)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <button
+                        type="button"
+                        onClick={() => invFileInputRef.current?.click()}
+                        style={{
+                          background: "var(--color-surface-2, rgba(255,255,255,0.06))",
+                          color: "var(--color-text-2)",
+                          border: "1px solid var(--color-border)",
+                          borderRadius: "8px",
+                          fontSize: "0.75rem",
+                          fontWeight: 500,
+                          padding: "6px 10px",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          transition: "all 0.15s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = "var(--color-teal)";
+                          e.currentTarget.style.color = "var(--color-teal)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = "var(--color-border)";
+                          e.currentTarget.style.color = "var(--color-text-2)";
+                        }}
+                        title="Select one or multiple files"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                        </svg>
+                        Attach Files
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => invFolderInputRef.current?.click()}
+                        style={{
+                          background: "var(--color-surface-2, rgba(255,255,255,0.06))",
+                          color: "var(--color-text-2)",
+                          border: "1px solid var(--color-border)",
+                          borderRadius: "8px",
+                          fontSize: "0.75rem",
+                          fontWeight: 500,
+                          padding: "6px 10px",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          transition: "all 0.15s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = "var(--color-teal)";
+                          e.currentTarget.style.color = "var(--color-teal)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = "var(--color-border)";
+                          e.currentTarget.style.color = "var(--color-text-2)";
+                        }}
+                        title="Upload entire folder and preserve relative paths"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                        </svg>
+                        Attach Folder
+                      </button>
+                    </div>
+
                     <button
                       type="submit"
-                      disabled={!query.trim() || submitting}
+                      disabled={!query.trim() || submitting || uploadingInvFiles}
                       style={{
                         background: "var(--color-accent)",
                         color: "#faf8f5",
                         fontWeight: 600,
                         fontSize: "0.875rem",
-                        padding: "10px 20px",
+                        padding: "8px 18px",
                         borderRadius: "10px",
                         border: "none",
                         cursor: "pointer",
@@ -352,16 +557,16 @@ export default function Workspace() {
                         alignItems: "center",
                         gap: "8px",
                         transition: "all 0.2s ease",
-                        opacity: !query.trim() || submitting ? 0.4 : 1,
+                        opacity: !query.trim() || submitting || uploadingInvFiles ? 0.4 : 1,
                       }}
                     >
-                      {submitting ? (
+                      {submitting || uploadingInvFiles ? (
                         <>
                           <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none">
                             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.3" />
                             <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                           </svg>
-                          Starting…
+                          {uploadingInvFiles ? "Uploading Files…" : "Starting…"}
                         </>
                       ) : (
                         <>

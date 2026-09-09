@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { mockChatFiles } from "../../mock-data";
+import zlib from "zlib";
 
 const DOCUMENT_EXTENSIONS = new Set([
   ".pdf",
@@ -31,8 +32,9 @@ async function checkBackend(): Promise<boolean> {
   }
   try {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 400);
-    const res = await fetch(`${BACKEND_URL}/knowledge-base/summary`, {
+    const t = setTimeout(() => ctrl.abort(), 1500);
+    const healthUrl = `${BACKEND_URL.replace(/\/api\/v1\/?$/, "")}/api/v1/health`;
+    const res = await fetch(healthUrl, {
       method: "GET",
       signal: ctrl.signal,
     });
@@ -43,6 +45,58 @@ async function checkBackend(): Promise<boolean> {
   }
   lastCheckTime = Date.now();
   return isBackendOnline;
+}
+
+function extractTextFromPdfBuffer(buffer: Buffer): string {
+  let fullText = "";
+  const rawString = buffer.toString("latin1");
+
+  // 1. Search for FlateDecode or uncompressed streams
+  const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let match: RegExpExecArray | null;
+  while ((match = streamRegex.exec(rawString)) !== null) {
+    const streamBytes = Buffer.from(match[1], "latin1");
+    let decompressed: Buffer | null = null;
+    try {
+      decompressed = zlib.inflateSync(streamBytes);
+    } catch {
+      try {
+        decompressed = zlib.inflateRawSync(streamBytes);
+      } catch {
+        decompressed = null;
+      }
+    }
+
+    const textChunk = decompressed ? decompressed.toString("latin1") : match[1];
+
+    // Extract text in Tj and TJ operators
+    const tjMatches = textChunk.match(/\(([^()]+)\)\s*Tj/g);
+    if (tjMatches) {
+      fullText += " " + tjMatches.map((m) => m.replace(/^\(|\)\s*Tj$/g, "")).join(" ");
+    }
+    const tjArrayMatches = textChunk.match(/\[([^\]]+)\]\s*TJ/g);
+    if (tjArrayMatches) {
+      for (const arr of tjArrayMatches) {
+        const innerStrings = arr.match(/\(([^()]+)\)/g);
+        if (innerStrings) {
+          fullText += " " + innerStrings.map((s) => s.slice(1, -1)).join("");
+        }
+      }
+    }
+  }
+
+  // 2. Check for literal uncompressed strings in whole document if streams yielded nothing
+  if (!fullText.trim()) {
+    const uncompressedMatches = rawString.match(/\(([^()]+)\)\s*Tj/g);
+    if (uncompressedMatches) {
+      fullText = uncompressedMatches.map((m) => m.replace(/^\(|\)\s*Tj$/g, "")).join(" ");
+    }
+  }
+
+  return fullText
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export async function POST(req: Request) {
@@ -63,7 +117,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 1. If backend is online, forward the parsed formData
+  // 1. If backend is online, forward the parsed formData to FastAPI (PyMuPDF)
   const backendUp = await checkBackend();
   if (backendUp) {
     try {
@@ -80,8 +134,8 @@ export async function POST(req: Request) {
       if (backendRes.ok) {
         return backendRes;
       }
-    } catch {
-      // Backend failed, fall back to standalone handler
+    } catch (e) {
+      console.warn("[Upload Proxy] Forwarding to backend failed, falling back to standalone:", e);
     }
   }
 
@@ -139,14 +193,7 @@ export async function POST(req: Request) {
       if (ext === ".txt" || ext === ".csv" || ext === ".md" || ext === ".json") {
         extractedText = buffer.toString("utf-8");
       } else if (ext === ".pdf") {
-        // Simple plain text extraction from PDF stream if present
-        const rawString = buffer.toString("latin1");
-        const matches = rawString.match(/\(([^()]+)\)\s*Tj/g);
-        if (matches && matches.length > 0) {
-          extractedText = matches
-            .map((m) => m.replace(/^\(|\)\s*Tj$/g, ""))
-            .join(" ");
-        }
+        extractedText = extractTextFromPdfBuffer(buffer);
         if (!extractedText) {
           extractedText = `[Ingested PDF Document: ${filename}, Size: ${(file.size / 1024).toFixed(1)} KB]`;
         }
@@ -169,7 +216,7 @@ export async function POST(req: Request) {
       filename,
       url: fileUrl,
       type: fileType,
-      extracted_text_preview: extractedText ? extractedText.substring(0, 500) : null,
+      extracted_text_preview: extractedText ? extractedText.substring(0, 2000) : null,
     });
   } catch (err) {
     return NextResponse.json(

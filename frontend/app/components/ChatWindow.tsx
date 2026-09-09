@@ -7,6 +7,7 @@ import {
   getConversation,
   sendChatMessage,
   uploadChatFile,
+  uploadChatFilesBatch,
 } from "@/app/services/api";
 import type { ChatMessage, ChatAttachment } from "@/app/types";
 
@@ -227,49 +228,74 @@ export default function ChatWindow({
       return;
     }
 
+    const paths = validFiles.map(
+      (file) => ((file as unknown as { webkitRelativePath?: string }).webkitRelativePath || file.name)
+    );
+
     setUploadingCount(validFiles.length);
 
     try {
-      const results = await Promise.allSettled(
-        validFiles.map(async (file) => {
-          const formData = new FormData();
-          formData.append("file", file);
-          return await uploadChatFile(formData);
-        })
-      );
-
-      const newAttachments: ChatAttachment[] = [];
-      let failCount = 0;
-
-      for (const res of results) {
-        if (res.status === "fulfilled") {
-          const result = res.value;
-          newAttachments.push({
-            filename: result.filename,
-            url: result.url,
-            type: result.type as "document" | "image",
-            extracted_text: result.extracted_text_preview || undefined,
-          });
-        } else {
-          failCount++;
-          console.error("File upload error:", res.reason);
-        }
-      }
+      // 1. Primary: Use batch upload
+      const uploaded = await uploadChatFilesBatch(validFiles, paths);
+      const newAttachments: ChatAttachment[] = uploaded.map((item) => ({
+        filename: item.filename,
+        url: item.url,
+        type: (item.type === "image" ? "image" : "document") as "document" | "image",
+        extracted_text: item.extracted_text,
+        relative_path: item.relative_path,
+        source_id: item.source_id,
+        size: item.size,
+      }));
 
       if (newAttachments.length > 0) {
         setAttachments((prev) => [...prev, ...newAttachments]);
       }
+    } catch (err) {
+      console.warn("Batch upload failed, falling back to individual upload:", err);
+      // 2. Fallback: upload file-by-file
+      try {
+        const results = await Promise.allSettled(
+          validFiles.map(async (file) => {
+            const formData = new FormData();
+            formData.append("file", file);
+            return await uploadChatFile(formData);
+          })
+        );
 
-      if (failCount > 0) {
+        const newAttachments: ChatAttachment[] = [];
+        let failCount = 0;
+
+        results.forEach((res, i) => {
+          if (res.status === "fulfilled") {
+            const result = res.value;
+            newAttachments.push({
+              filename: result.filename,
+              url: result.url,
+              type: result.type as "document" | "image",
+              extracted_text: result.extracted_text_preview || undefined,
+              relative_path: paths[i],
+            });
+          } else {
+            failCount++;
+          }
+        });
+
+        if (newAttachments.length > 0) {
+          setAttachments((prev) => [...prev, ...newAttachments]);
+        }
+
+        if (failCount > 0) {
+          setUploadError(
+            failCount === validFiles.length
+              ? "Failed to upload selected file(s). Please try again."
+              : `${failCount} of ${validFiles.length} file(s) could not be uploaded.`
+          );
+        }
+      } catch (fallbackErr) {
         setUploadError(
-          failCount === validFiles.length
-            ? "Failed to upload selected file(s). Please try again."
-            : `${failCount} of ${validFiles.length} file(s) could not be uploaded.`
+          fallbackErr instanceof Error ? fallbackErr.message : "Failed to upload files"
         );
       }
-    } catch (err) {
-      console.error("Batch upload error:", err);
-      setUploadError(err instanceof Error ? err.message : "Failed to upload files");
     } finally {
       setUploadingCount(0);
     }
@@ -609,10 +635,29 @@ export default function ChatWindow({
             }}
           >
             {attachments.map((att, i) => (
-              <span key={i} className="attachment-chip">
-                {att.type === "image" ? "🖼" : "📄"}
-                <span className="attachment-chip-name">{att.filename}</span>
-                <button onClick={() => removeAttachment(i)} title="Remove">
+              <span
+                key={i}
+                className="attachment-chip"
+                title={att.relative_path || att.filename}
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+              >
+                <span>{att.type === "image" ? "🖼" : att.relative_path?.includes("/") ? "📁" : "📄"}</span>
+                <span className="attachment-chip-name" style={{ maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {att.relative_path && att.relative_path !== att.filename ? att.relative_path : att.filename}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(i)}
+                  title="Remove attachment"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "0 2px",
+                    color: "inherit",
+                    opacity: 0.7,
+                  }}
+                >
                   ×
                 </button>
               </span>

@@ -201,6 +201,7 @@ export interface Report {
   conclusion: string;
   confidence: number;
   verification_status: VerificationStatus;
+  attachments?: AttachmentItem[];
   generated_at: string;
 }
 
@@ -251,13 +252,28 @@ export interface SSEInsufficientEvidence {
   message: string;
 }
 
+// ─── Attachments & Uploads ──────────────────────────────────────────
+
+export interface AttachmentItem {
+  filename: string;
+  url: string;
+  type: "document" | "image" | string;
+  extracted_text?: string;
+  relative_path?: string;
+  source_id?: string;
+  size?: number;
+}
+
 // ─── Chat ───────────────────────────────────────────────────────────
 
 export interface ChatAttachment {
   filename: string;
   url: string;
-  type: "document" | "image";
+  type: "document" | "image" | string;
   extracted_text?: string;
+  relative_path?: string;
+  source_id?: string;
+  size?: number;
 }
 
 export interface ChatMessage {

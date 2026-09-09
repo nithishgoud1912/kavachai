@@ -12,6 +12,7 @@ import ConclusionSection from "@/app/components/ConclusionSection";
 import ReportActions from "@/app/components/ReportActions";
 import SourceViewer from "@/app/components/SourceViewer";
 import ChatWindow from "@/app/components/ChatWindow";
+import InvestigationReport from "@/app/components/investigation/InvestigationReport";
 import { useSession } from "@/app/hooks/useSession";
 import { getReport, getConversations, createConversation } from "@/app/services/api";
 import type { Report, OverallStatus } from "@/app/types";
@@ -141,7 +142,7 @@ export default function ReportPage() {
 
   const statusConfig = STATUS_CONFIG[report.overall_status] || STATUS_CONFIG.attention_required;
   const safeQuery = report.query || "";
-  const highlightedEquipment = safeQuery.match(/P-\d+/)?.[0] || "P-102";
+  const highlightedEquipment = safeQuery.match(/P-\d+/)?.[0] || "";
   const findings = report.findings || [];
   const hasVibration = findings.some(
     (f) =>
@@ -188,6 +189,9 @@ export default function ReportPage() {
               <p className="text-text-3 text-xs uppercase tracking-wider mb-1">Condition</p>
               <p className="text-text text-lg font-light">{report.condition_summary}</p>
             </div>
+
+            {/* Attached Documents & Folders */}
+            <InvestigationReport report={report} />
           </div>
 
           {/* ─── Key Findings ─────────────────────────────────────────── */}

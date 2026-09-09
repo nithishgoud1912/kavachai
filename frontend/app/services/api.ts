@@ -16,7 +16,10 @@ import type {
   ChatAttachment,
   ChatMessage,
   InvestigationSummary,
+  AttachmentItem,
 } from "@/app/types";
+
+export type { AttachmentItem };
 
 // Response type aliases for chat endpoints
 type ChatMessageItem = ChatMessage;
@@ -167,12 +170,13 @@ export async function uploadDataset(formData: FormData): Promise<{ dataset_id: s
 
 export async function createInvestigation(
   query: string,
-  sessionId: string
+  sessionId: string,
+  attachments?: AttachmentItem[]
 ): Promise<Investigation> {
   const res = await fetch(`${API_BASE}/investigations`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-    body: JSON.stringify({ query, session_id: sessionId }),
+    body: JSON.stringify({ query, session_id: sessionId, attachments }),
     credentials: "include",
   });
   return handleResponse<Investigation>(res);
@@ -346,6 +350,46 @@ export async function uploadChatFile(
     credentials: "include",
   });
   return handleResponse<UploadedFile>(res);
+}
+
+export async function uploadInvestigationFiles(
+  files: File[],
+  paths?: string[]
+): Promise<AttachmentItem[]> {
+  const formData = new FormData();
+  files.forEach((f) => formData.append("files", f));
+  if (paths && paths.length > 0) {
+    formData.append("paths", JSON.stringify(paths));
+  }
+  const res = await fetch(`${API_BASE}/investigations/upload`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: formData,
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Upload failed");
+  const data = await res.json();
+  return data.uploaded;
+}
+
+export async function uploadChatFilesBatch(
+  files: File[],
+  paths?: string[]
+): Promise<AttachmentItem[]> {
+  const formData = new FormData();
+  files.forEach((f) => formData.append("files", f));
+  if (paths && paths.length > 0) {
+    formData.append("paths", JSON.stringify(paths));
+  }
+  const res = await fetch(`${API_BASE}/conversations/upload-batch`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: formData,
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Batch upload failed");
+  const data = await res.json();
+  return data.uploaded;
 }
 
 // ─── Investigation List ─────────────────────────────────────────────
