@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # --- Ollama ---
     OLLAMA_HOST: str = "http://localhost:11434"
     LLM_MODEL: str = "qwen2.5:3b"
+    VISION_MODEL: str = "qwen2.5vl:3b"
     EMBEDDING_MODEL: str = "nomic-embed-text"
 
     # --- Server ---
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
     # --- Performance ---
     LLM_TIMEOUT_SECONDS: int = 60
     AGENT_TIMEOUT_SECONDS: int = 30
+    VISION_TIMEOUT_SECONDS: int = 60
 
     @property
     def cors_origins_list(self) -> List[str]:

@@ -23,17 +23,17 @@ PLANNER_SYSTEM_PROMPT = """You are the Planner Agent for KavachAI, an industrial
 Your job is to decompose a user's investigation query into sub-tasks for specialist agents.
 
 Available agents and their capabilities:
-- document_agent: Searches text documents (inspection reports, maintenance logs, SOPs, manuals). Use for finding specific passages, values, or procedures.
-- data_agent: Analyzes structured time-series data (vibration, temperature, pressure readings). Use ONLY when numerical trend analysis is needed.
-- vision_agent: Identifies equipment and connections in P&ID drawings. Use ONLY when equipment relationships/connectivity are relevant.
-- rag_agent: Retrieves specification thresholds and standards from equipment manuals. Use when comparing actual values against specs/limits.
+- document_agent: Searches text documents (inspection reports, maintenance logs, SOPs, manuals). Use for finding specific passages, historical logs, or procedures.
+- data_agent: Analyzes structured time-series data (vibration, temperature, pressure readings). Use whenever numerical trend or telemetry analysis is relevant.
+- vision_agent: Analyzes visual P&ID drawings, process schematics, and technical diagrams using multimodal vision (Qwen2.5-VL). Use whenever equipment connectivity, piping topology, inspection drawings, or uploaded engineering PDFs/diagrams are being investigated.
+- rag_agent: Retrieves specification thresholds, ISO standards, and limits from manuals. Use when comparing actual values against engineering specs/limits.
 
 Rules:
-1. Only assign agents that are relevant to the query. A safety/procedural question needs only document_agent and possibly rag_agent.
-2. If the query is clearly outside the scope of industrial plant operations (e.g., stock prices, weather, general knowledge), set is_in_scope to false and return empty sub_tasks.
-3. If the user provided specific submitted files or folders for this investigation, the query is automatically IN SCOPE (is_in_scope: true). Formulate sub-tasks that specifically analyze the contents of the uploaded files.
-4. Each sub-task must have a clear, specific goal string.
-5. Keep sub-tasks focused — one goal per sub-task.
+1. For comprehensive industrial asset investigations (e.g., pumps, heat exchangers, valves, tanks, or specific tags like P-102), schedule all relevant specialist agents (document_agent, data_agent, vision_agent, rag_agent) to ensure a complete multi-perspective forensic analysis.
+2. A purely safety or procedural question needs only document_agent and rag_agent.
+3. If the query is clearly outside the scope of industrial plant operations (e.g., stock prices, weather, general knowledge), set is_in_scope to false and return empty sub_tasks.
+4. If the user provided specific submitted files or folders for this investigation, the query is automatically IN SCOPE (is_in_scope: true). Formulate sub-tasks that specifically analyze the contents of the uploaded files, including vision_agent if drawings or PDFs are attached.
+5. Each sub-task must have a clear, specific goal string.
 
 Respond with ONLY valid JSON in this exact format:
 {
@@ -71,7 +71,7 @@ async def plan(
             f"\n\nUSER-SUBMITTED FILES FOR THIS INVESTIGATION:\n"
             f"- {len(filenames)} files uploaded: {', '.join(filenames[:10])}\n"
             f"IMPORTANT: The user submitted these documents specifically to be investigated. "
-            f"Set is_in_scope to true and assign tasks to analyze these submitted files."
+            f"Set is_in_scope to true. If files contain drawings, schematics, or PDFs, assign vision_agent to inspect the visual topology."
         )
 
     prompt = f"""Query: "{query}"
@@ -114,14 +114,17 @@ Decompose this query into sub-tasks. Respond with JSON only."""
         return InvestigationPlan(sub_tasks=sub_tasks, is_in_scope=is_in_scope)
 
     except json.JSONDecodeError:
-        # If LLM returns invalid JSON, try to determine scope from response text
-        # Conservative: assume in-scope and create a basic document search task
-        return InvestigationPlan(
-            sub_tasks=[
-                SubTask(agent=AgentName.DOCUMENT_AGENT, goal=f"Search for documents relevant to: {query}"),
-                SubTask(agent=AgentName.RAG_AGENT, goal=f"Find specifications related to: {query}"),
-            ],
-            is_in_scope=True,
-        )
+        # If LLM returns invalid JSON, create rich sub-tasks based on query
+        import re
+        equip_match = re.findall(r"\b([A-Z]-\d{2,4})\b", query)
+        equip = equip_match[0] if equip_match else "P-102"
+
+        fallback_tasks = [
+            SubTask(agent=AgentName.DOCUMENT_AGENT, goal=f"Search for documents and inspection logs relevant to: {query}"),
+            SubTask(agent=AgentName.DATA_AGENT, goal=f"Analyze operational telemetry and trends for {equip}"),
+            SubTask(agent=AgentName.VISION_AGENT, goal=f"Visually inspect P&ID process schematic and connectivity for {equip}"),
+            SubTask(agent=AgentName.RAG_AGENT, goal=f"Retrieve specifications and operating thresholds for {equip}"),
+        ]
+        return InvestigationPlan(sub_tasks=fallback_tasks, is_in_scope=True)
     except Exception as e:
         raise RuntimeError(f"Planner failed: {type(e).__name__}: {e}")

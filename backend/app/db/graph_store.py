@@ -19,19 +19,25 @@ class GraphStore:
 
     def _load_demo_graph(self):
         """
-        Pre-load the P-102 demo cluster.
-        Decision Q11: 4 nodes default — T-101, P-102, V-204, R-101.
+        Pre-load the rich 7-node industrial process cluster:
+        T-101 -> STR-101 -> P-102 -> E-103 -> V-204 -> F-101 -> R-101
         """
         # Nodes with metadata
-        self.add_node("T-101", equipment_type="tank", label="Feed Tank T-101")
+        self.add_node("T-101", equipment_type="tank", label="Crude Storage Tank T-101")
+        self.add_node("STR-101", equipment_type="filter", label="Suction Strainer STR-101")
         self.add_node("P-102", equipment_type="pump", label="Centrifugal Pump P-102")
-        self.add_node("V-204", equipment_type="vessel", label="Separation Vessel V-204")
-        self.add_node("R-101", equipment_type="reactor", label="Reactor R-101")
+        self.add_node("E-103", equipment_type="exchanger", label="Pre-Heat Exchanger E-103")
+        self.add_node("V-204", equipment_type="valve", label="Flow Control Valve V-204")
+        self.add_node("F-101", equipment_type="furnace", label="Fired Heater F-101")
+        self.add_node("R-101", equipment_type="reactor", label="Hydrotreater Reactor R-101")
 
         # Edges with relationship labels
-        self.add_edge("T-101", "P-102", relationship="feeds_into", label="T-101 feeds into P-102")
-        self.add_edge("P-102", "V-204", relationship="discharges_to", label="P-102 discharges to V-204")
-        self.add_edge("V-204", "R-101", relationship="feeds_into", label="V-204 feeds into R-101")
+        self.add_edge("T-101", "STR-101", relationship="feeds_into", label="T-101 feeds into STR-101")
+        self.add_edge("STR-101", "P-102", relationship="suction_to", label="STR-101 suction to P-102")
+        self.add_edge("P-102", "E-103", relationship="discharges_to", label="P-102 discharges to E-103")
+        self.add_edge("E-103", "V-204", relationship="flows_to", label="E-103 flows to V-204")
+        self.add_edge("V-204", "F-101", relationship="meters_to", label="V-204 meters to F-101")
+        self.add_edge("F-101", "R-101", relationship="charges_to", label="F-101 charges to R-101")
 
     def add_node(self, equipment_id: str, equipment_type: str = "equipment", label: Optional[str] = None) -> None:
         """Add or update an equipment node in the graph."""

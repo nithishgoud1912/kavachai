@@ -31,20 +31,20 @@ def extract_text(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
         ".tsv", ".yaml", ".yml", ".py", ".sql", ".ini", ".conf",
     }
 
+    IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff"}
+
     suffix = Path(filename).suffix.lower()
 
-    if suffix == ".pdf":
+    if suffix in IMAGE_SUFFIXES:
+        return []
+    elif suffix == ".pdf":
         return _extract_pdf(file_content)
     elif suffix == ".docx":
         return _extract_docx(file_content)
     elif suffix in TEXT_SUFFIXES:
         return _extract_text(file_content, filename)
     else:
-        # Fallback: attempt to decode as text before giving up
-        try:
-            return _extract_text(file_content, filename)
-        except Exception:
-            return []
+        return []
 
 
 def _extract_pdf(file_content: bytes) -> List[Dict[str, Any]]:

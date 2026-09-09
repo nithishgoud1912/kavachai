@@ -161,7 +161,9 @@ export interface PidEvidence {
   filename: string;
   highlighted_component: string;
   connections: string[];
-  view_url: string;
+  view_url?: string;
+  visual_description?: string;
+  bounding_box?: number[] | null;
 }
 
 export type EvidenceSource = DocumentEvidence | DatasetEvidence | PidEvidence;
@@ -191,6 +193,22 @@ export interface Finding {
   evidence: EvidenceReference[];
 }
 
+export interface TopologyNode {
+  tag: string;
+  name: string;
+  role: string;
+  spec: string;
+  status: string;
+}
+
+export interface BypassLoop {
+  tag: string;
+  name: string;
+  from_node: string;
+  to_node: string;
+  purpose: string;
+}
+
 export interface Report {
   investigation_id: string;
   query: string;
@@ -198,6 +216,11 @@ export interface Report {
   condition_summary: string;
   findings: Finding[];
   pid_relationship: string[] | null;
+  vision_observation?: string | null;
+  bounding_box?: number[] | null;
+  telemetry_trend?: { label: string; value: number; unit: string }[] | null;
+  process_topology?: TopologyNode[] | null;
+  bypass_loops?: BypassLoop[] | null;
   conclusion: string;
   confidence: number;
   verification_status: VerificationStatus;

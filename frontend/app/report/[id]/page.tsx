@@ -230,6 +230,10 @@ export default function ReportPage() {
               <PidRelationship
                 components={report.pid_relationship}
                 highlighted={highlightedEquipment}
+                visionObservation={report.vision_observation}
+                boundingBox={report.bounding_box}
+                processTopology={report.process_topology}
+                bypassLoops={report.bypass_loops}
               />
             </div>
           )}
