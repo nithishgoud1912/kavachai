@@ -44,7 +44,10 @@ class ObjectStore:
         source_dir = self._file_path(source_id)
         source_dir.mkdir(parents=True, exist_ok=True)
 
-        file_path = source_dir / filename
+        # Sanitize filename: strip directory prefixes to avoid missing intermediate subdirs
+        clean_filename = Path(filename.replace("\\", "/")).name or "file"
+        file_path = source_dir / clean_filename
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_bytes(file_content)
 
         return str(file_path.relative_to(self.base_path))
@@ -60,8 +63,8 @@ class ObjectStore:
         if not source_dir.exists():
             return None
 
-        # Find the first file in the source directory (the raw file)
-        files = [f for f in source_dir.iterdir() if f.is_file() and not f.name.startswith(".")]
+        # Find the first file in the source directory (the raw file), checking recursively
+        files = [f for f in source_dir.rglob("*") if f.is_file() and not f.name.startswith(".")]
         if not files:
             return None
 

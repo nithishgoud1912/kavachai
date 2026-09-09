@@ -64,16 +64,17 @@ async def upload_document(
         except json.JSONDecodeError:
             equip_ids = [equipment_ids]
 
+    safe_filename = Path(file.filename.replace("\\", "/")).name or "file"
     source_id = f"doc_{uuid.uuid4().hex[:8]}"
     file_content = await file.read()
 
     # Save raw file to object store (FR-ING-6)
-    object_store.save_raw_file(source_id, file_content, file.filename)
+    object_store.save_raw_file(source_id, file_content, safe_filename)
 
     # Create document record
-    page_count = get_page_count(file_content, file.filename)
+    page_count = get_page_count(file_content, safe_filename)
     doc = Document(
-        filename=file.filename,
+        filename=safe_filename,
         document_type=document_type,
         status="processing",
         pages=page_count,
@@ -88,7 +89,7 @@ async def upload_document(
     # Run ingestion pipeline (FR-ING-2..5)
     try:
         # Extract text (FR-ING-2)
-        pages = extract_text(file_content, file.filename)
+        pages = extract_text(file_content, safe_filename)
 
         if pages:
             # Chunk text (FR-ING-3)
@@ -96,7 +97,7 @@ async def upload_document(
 
             # Tag chunks with metadata (FR-ING-4)
             tagged_chunks = tag_chunks(
-                chunks, source_id, file.filename,
+                chunks, source_id, safe_filename,
                 document_type, equip_ids, department_scope,
             )
 
@@ -168,19 +169,20 @@ async def upload_dataset(
     Upload a structured time-series dataset.
     Implements: FR-ING-7
     """
+    safe_filename = Path(file.filename.replace("\\", "/")).name or "file"
     dataset_id = f"ds_{uuid.uuid4().hex[:4]}"
     file_content = await file.read()
 
     # Save raw file to object store
     source_id = dataset_id
-    object_store.save_raw_file(source_id, file_content, file.filename)
+    object_store.save_raw_file(source_id, file_content, safe_filename)
 
     try:
-        result = parse_tabular_file(file_content, file.filename, dataset_id)
+        result = parse_tabular_file(file_content, safe_filename, dataset_id)
 
         ds = Dataset(
             id=dataset_id,
-            filename=file.filename,
+            filename=safe_filename,
             columns=result["columns"],
             row_count=result["row_count"],
             status="ready",

@@ -462,7 +462,8 @@ async def _process_chat_file(
     db: AsyncSession,
 ) -> UploadResponse:
     """Helper to process, save, extract text, chunk, and index a chat upload file."""
-    suffix = Path(file.filename).suffix.lower()
+    safe_filename = Path(file.filename.replace("\\", "/")).name or "file"
+    suffix = Path(safe_filename).suffix.lower()
     is_document = suffix in DOCUMENT_EXTENSIONS
     is_image = suffix in IMAGE_EXTENSIONS
 
@@ -473,8 +474,9 @@ async def _process_chat_file(
                    f"Supported: {', '.join(sorted(DOCUMENT_EXTENSIONS | IMAGE_EXTENSIONS))}",
         )
 
-    unique_name = f"{uuid.uuid4().hex[:12]}_{file.filename}"
+    unique_name = f"{uuid.uuid4().hex[:12]}_{safe_filename}"
     file_path = UPLOAD_DIR / unique_name
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     source_id = f"chat_{uuid.uuid4().hex[:8]}"
 
     content = await file.read()
@@ -482,7 +484,7 @@ async def _process_chat_file(
         f.write(content)
 
     # Save to object store as well
-    object_store.save_raw_file(source_id, content, file.filename)
+    object_store.save_raw_file(source_id, content, safe_filename)
 
     extracted_text_preview = None
     chunk_count = 0
@@ -490,8 +492,8 @@ async def _process_chat_file(
 
     if is_document:
         try:
-            pages = extract_text(content, file.filename)
-            page_count = get_page_count(content, file.filename)
+            pages = extract_text(content, safe_filename)
+            page_count = get_page_count(content, safe_filename)
             if pages:
                 full_text = "\n\n".join(p["text"] for p in pages if p.get("text"))
                 if full_text:
@@ -502,7 +504,7 @@ async def _process_chat_file(
                     tagged_chunks = tag_chunks(
                         chunks=chunks,
                         source_id=source_id,
-                        filename=file.filename,
+                        filename=safe_filename,
                         document_type="chat_upload",
                         equipment_ids=[],
                         department_scope=None,
@@ -520,7 +522,7 @@ async def _process_chat_file(
             # Record in Document table
             doc = Document(
                 id=source_id,
-                filename=file.filename,
+                filename=safe_filename,
                 document_type="chat_upload",
                 status="ready",
                 pages=page_count if pages else 1,
@@ -537,7 +539,7 @@ async def _process_chat_file(
     file_url = f"/api/v1/files/chat/{unique_name}"
 
     return UploadResponse(
-        filename=file.filename,
+        filename=safe_filename,
         url=file_url,
         type="document" if is_document else "image",
         extracted_text_preview=extracted_text_preview,

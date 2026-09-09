@@ -148,19 +148,20 @@ async def upload_investigation_files(
         if not file.filename:
             continue
 
+        safe_filename = Path(file.filename.replace("\\", "/")).name or file.filename
         relative_path = path_list[idx] if idx < len(path_list) else file.filename
         source_id = f"doc_{uuid.uuid4().hex[:8]}"
         file_content = await file.read()
         file_size = len(file_content)
 
         # 1. Save raw file to object store
-        object_store.save_raw_file(source_id, file_content, file.filename)
+        object_store.save_raw_file(source_id, file_content, safe_filename)
 
         # 2. Extract text
-        pages = extract_text(file_content, file.filename)
-        page_count = get_page_count(file_content, file.filename)
+        pages = extract_text(file_content, safe_filename)
+        page_count = get_page_count(file_content, safe_filename)
 
-        suffix = Path(file.filename).suffix.lower()
+        suffix = Path(safe_filename).suffix.lower()
         is_image = suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
         file_type = "image" if is_image else "document"
 
@@ -179,7 +180,7 @@ async def upload_investigation_files(
                 tagged_chunks = tag_chunks(
                     chunks=chunks,
                     source_id=source_id,
-                    filename=file.filename,
+                    filename=safe_filename,
                     document_type="investigation_upload",
                     equipment_ids=[],
                     department_scope=None,
@@ -199,7 +200,7 @@ async def upload_investigation_files(
         # 6. Save document record in DB
         doc = Document(
             id=source_id,
-            filename=file.filename,
+            filename=safe_filename,
             document_type="investigation_upload",
             status="ready",
             pages=page_count,
@@ -214,7 +215,7 @@ async def upload_investigation_files(
         file_url = f"/api/v1/files/{source_id}/raw"
 
         uploaded_results.append(UploadResponse(
-            filename=file.filename,
+            filename=safe_filename,
             url=file_url,
             type=file_type,
             extracted_text_preview=preview_text,
