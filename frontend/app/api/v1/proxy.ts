@@ -5,16 +5,23 @@ export async function proxyOrFallback(
   req: Request,
   fallback: (rawBody?: string, parsedJson?: any) => Promise<Response> | Response
 ): Promise<Response> {
-  let rawBody: string | undefined;
+  const contentType = req.headers.get("content-type") || "";
+  const isMultipart = contentType.includes("multipart/form-data");
+  let bodyBuffer: Buffer | undefined;
+  let rawBodyText: string | undefined;
   let parsedJson: any = null;
 
   if (req.method !== "GET" && req.method !== "HEAD") {
     try {
-      rawBody = await req.text();
-      if (rawBody) {
-        try {
-          parsedJson = JSON.parse(rawBody);
-        } catch {}
+      if (isMultipart) {
+        bodyBuffer = Buffer.from(await req.arrayBuffer());
+      } else {
+        rawBodyText = await req.text();
+        if (rawBodyText) {
+          try {
+            parsedJson = JSON.parse(rawBodyText);
+          } catch {}
+        }
       }
     } catch {}
   }
@@ -36,7 +43,7 @@ export async function proxyOrFallback(
     const res = await fetch(targetUrl, {
       method: req.method,
       headers,
-      body: rawBody,
+      body: (isMultipart ? bodyBuffer : rawBodyText) as any,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -45,6 +52,6 @@ export async function proxyOrFallback(
     return res;
   } catch (err) {
     console.warn(`[Proxy] Backend at ${BACKEND_URL}${path} unreachable:`, err);
-    return fallback(rawBody, parsedJson);
+    return fallback(rawBodyText, parsedJson);
   }
 }

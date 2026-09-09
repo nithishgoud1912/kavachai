@@ -83,11 +83,17 @@ class VectorStore:
         if results and results["ids"] and results["ids"][0]:
             for i, chunk_id in enumerate(results["ids"][0]):
                 metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                raw_page = metadata.get("page", 1)
+                try:
+                    page_val = int(raw_page) if raw_page is not None else 1
+                except (ValueError, TypeError):
+                    page_val = 1
+
                 chunks.append({
                     "chunk_id": chunk_id,
                     "chunk_text": results["documents"][0][i] if results["documents"] else "",
                     "source_id": metadata.get("source_id", ""),
-                    "page": metadata.get("page", None),
+                    "page": page_val,
                     "score": 1.0 - results["distances"][0][i] if results["distances"] else 0.0,  # cosine distance → similarity
                     "metadata": metadata,
                 })

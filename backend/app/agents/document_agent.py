@@ -70,10 +70,18 @@ async def retrieve(
         if target_sids and chunk_sid in target_sids:
             score += 0.8  # strong boost for user-uploaded investigation files
 
+        raw_page = r.get("page")
+        if raw_page is None:
+            raw_page = meta.get("page", 1)
+        try:
+            page_int = int(raw_page) if raw_page is not None else 1
+        except (ValueError, TypeError):
+            page_int = 1
+
         chunks.append(DocumentChunk(
             chunk_text=r["chunk_text"],
             source_id=r["source_id"],
-            page=r.get("page", 1),
+            page=page_int,
             score=score,
         ))
 

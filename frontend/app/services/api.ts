@@ -165,14 +165,34 @@ export async function uploadDataset(formData: FormData): Promise<{ dataset_id: s
 
 // ─── Investigations ─────────────────────────────────────────────────
 
+export async function uploadInvestigationFiles(
+  files: File[],
+  paths?: string[]
+): Promise<any[]> {
+  const formData = new FormData();
+  files.forEach((f) => formData.append("files", f));
+  if (paths && paths.length > 0) {
+    formData.append("paths", JSON.stringify(paths));
+  }
+  const res = await fetch(`${API_BASE}/investigations/upload`, {
+    method: "POST",
+    headers: { ...getAuthHeaders() },
+    body: formData,
+    credentials: "include",
+  });
+  const data = await handleResponse<{ files: any[]; total_files: number }>(res);
+  return data.files || [];
+}
+
 export async function createInvestigation(
   query: string,
-  sessionId: string
+  sessionId: string,
+  attachments: any[] = []
 ): Promise<Investigation> {
   const res = await fetch(`${API_BASE}/investigations`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-    body: JSON.stringify({ query, session_id: sessionId }),
+    body: JSON.stringify({ query, session_id: sessionId, attachments }),
     credentials: "include",
   });
   return handleResponse<Investigation>(res);

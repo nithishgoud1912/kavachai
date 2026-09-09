@@ -423,12 +423,36 @@ select:focus-visible {
   line-height: 1.5;
 }
 
-.chat-bubble ul, .chat-bubble ol {
-  margin: 4px 0;
-  padding-left: 20px;
+.chat-bubble ul {
+  list-style-type: disc !important;
+  margin: 8px 0 12px 0;
+  padding-left: 22px;
+}
+
+.chat-bubble ol {
+  list-style-type: decimal !important;
+  margin: 8px 0 12px 0;
+  padding-left: 22px;
+}
+
+.chat-bubble ul ul {
+  list-style-type: circle !important;
+  margin: 4px 0 4px 0;
+  padding-left: 18px;
+}
+
+.chat-bubble ol ol {
+  list-style-type: lower-alpha !important;
+  margin: 4px 0 4px 0;
+  padding-left: 18px;
 }
 
 .chat-bubble li {
+  margin-bottom: 4px;
+  line-height: 1.55;
+}
+
+.chat-bubble li > p {
   margin-bottom: 2px;
 }
 
@@ -440,7 +464,7 @@ select:focus-visible {
 .chat-bubble table {
   border-collapse: collapse;
   width: 100%;
-  margin: 8px 0;
+  margin: 12px 0;
   font-size: 0.8125rem;
 }
 
@@ -461,22 +485,23 @@ select:focus-visible {
   background: rgba(196, 93, 62, 0.03);
 }
 
-.chat-bubble h1, .chat-bubble h2, .chat-bubble h3 {
+.chat-bubble h1, .chat-bubble h2, .chat-bubble h3, .chat-bubble h4 {
   font-family: var(--font-playfair);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text);
-  margin: 8px 0 4px;
+  margin: 16px 0 8px;
   letter-spacing: -0.01em;
 }
 
-.chat-bubble h1 { font-size: 1.1rem; }
-.chat-bubble h2 { font-size: 1rem; }
-.chat-bubble h3 { font-size: 0.9375rem; border-bottom: 1px solid var(--color-border); padding-bottom: 4px; }
+.chat-bubble h1 { font-size: 1.25rem; }
+.chat-bubble h2 { font-size: 1.125rem; }
+.chat-bubble h3 { font-size: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 4px; }
+.chat-bubble h4 { font-size: 0.875rem; }
 
 .chat-bubble blockquote {
   border-left: 3px solid var(--color-accent);
   padding: 4px 12px;
-  margin: 4px 0;
+  margin: 8px 0;
   color: var(--color-text-2);
   font-style: italic;
 }
@@ -484,7 +509,7 @@ select:focus-visible {
 .chat-bubble hr {
   border: none;
   border-top: 1px solid var(--color-border);
-  margin: 8px 0;
+  margin: 14px 0;
 }
 
 .chat-timestamp {

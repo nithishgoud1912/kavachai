@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSession } from "@/app/hooks/useSession";
-import { useKnowledgeBase } from "@/app/hooks/useKnowledgeBase";
 import { getConversations, getInvestigations } from "@/app/services/api";
 import type { Conversation, InvestigationSummary } from "@/app/types";
 
@@ -38,7 +37,6 @@ export default function Sidebar({
   className = "",
 }: SidebarProps) {
   const { session } = useSession();
-  const { summary: kbSummary } = useKnowledgeBase();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [loadingChats, setLoadingChats] = useState(true);
@@ -271,20 +269,12 @@ export default function Sidebar({
         background: "var(--color-bg)",
       }}>
         {session && (
-          <p style={{ fontSize: "0.6875rem", color: "var(--color-text-3)", marginBottom: "4px" }}>
+          <p style={{ fontSize: "0.6875rem", color: "var(--color-text-3)" }}>
             <span style={{ color: "var(--color-text-2)" }}>{session.name}</span>
             <span style={{ margin: "0 6px" }}>·</span>
             <span className="font-[family-name:var(--font-mono)]" style={{ fontSize: "0.625rem" }}>
               {session.department}
             </span>
-          </p>
-        )}
-        {kbSummary && (
-          <p className="font-[family-name:var(--font-mono)]" style={{
-            fontSize: "0.625rem",
-            color: "var(--color-text-3)",
-          }}>
-            KB: {kbSummary.documents} docs · {kbSummary.datasets} datasets · {kbSummary.pid_drawings} P&IDs
           </p>
         )}
       </div>

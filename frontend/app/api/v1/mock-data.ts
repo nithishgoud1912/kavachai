@@ -49,6 +49,7 @@ export interface StoredChatFile {
   type: "document" | "image";
   extracted_text: string;
   dataBase64?: string;
+  contentType?: string;
 }
 
 export const mockChatFiles: Record<string, StoredChatFile> = {};

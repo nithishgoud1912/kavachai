@@ -5,10 +5,13 @@ Implements: FR-ING-2 (text extraction preserving page/section metadata)
 Uses PyMuPDF (fitz) for PDF extraction, python-docx for DOCX, plain read for TXT.
 """
 
-import fitz  # PyMuPDF
+import pymupdf
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from docx import Document as DocxDocument
+
+logger = logging.getLogger("kavachai.extract")
 
 
 def extract_text(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
@@ -50,23 +53,32 @@ def _extract_pdf(file_content: bytes) -> List[Dict[str, Any]]:
     Implements: FR-ING-2 (PyMuPDF preserves page metadata)
     """
     pages = []
-    doc = fitz.open(stream=file_content, filetype="pdf")
+    try:
+        doc = pymupdf.open(stream=file_content, filetype="pdf")
 
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        text = page.get_text("text")
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text("text")
 
-        if text.strip():  # Skip empty pages
-            pages.append({
-                "page": page_num + 1,  # 1-indexed
-                "text": text.strip(),
-                "metadata": {
-                    "width": page.rect.width,
-                    "height": page.rect.height,
-                },
-            })
+            # Fallback to block extraction if layout is complex or table-heavy
+            if not text.strip():
+                blocks = page.get_text("blocks")
+                if blocks:
+                    text = "\n".join(b[4] for b in blocks if len(b) > 4 and b[4].strip())
 
-    doc.close()
+            if text.strip():  # Skip empty pages
+                pages.append({
+                    "page": page_num + 1,  # 1-indexed
+                    "text": text.strip(),
+                    "metadata": {
+                        "width": page.rect.width,
+                        "height": page.rect.height,
+                    },
+                })
+
+        doc.close()
+    except Exception as e:
+        logger.warning(f"PyMuPDF failed to extract text from PDF: {e}")
     return pages
 
 
@@ -112,9 +124,12 @@ def get_page_count(file_content: bytes, filename: str) -> int:
     suffix = Path(filename).suffix.lower()
 
     if suffix == ".pdf":
-        doc = fitz.open(stream=file_content, filetype="pdf")
-        count = len(doc)
-        doc.close()
-        return count
+        try:
+            doc = pymupdf.open(stream=file_content, filetype="pdf")
+            count = len(doc)
+            doc.close()
+            return count
+        except Exception:
+            return 1
 
     return 1  # Non-PDF documents treated as single page
