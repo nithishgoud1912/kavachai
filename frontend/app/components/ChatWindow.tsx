@@ -7,6 +7,7 @@ import {
   getConversation,
   sendChatMessage,
   uploadChatFile,
+  deleteConversation,
 } from "@/app/services/api";
 import type { ChatMessage, ChatAttachment } from "@/app/types";
 
@@ -15,6 +16,7 @@ interface ChatWindowProps {
   type?: "general" | "report";
   investigationId?: string;
   onConversationCreated?: (id: string) => void;
+  onConversationDeleted?: (id: string) => void;
   compact?: boolean;
 }
 
@@ -59,6 +61,7 @@ export default function ChatWindow({
   type = "general",
   investigationId,
   onConversationCreated,
+  onConversationDeleted,
   compact = false,
 }: ChatWindowProps) {
   const { session } = useSession();
@@ -66,6 +69,7 @@ export default function ChatWindow({
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [currentConvId, setCurrentConvId] = useState<string | null>(conversationId);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [uploadingCount, setUploadingCount] = useState<number>(0);
@@ -75,6 +79,30 @@ export default function ChatWindow({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDeleteCurrentChat = useCallback(async () => {
+    if (!currentConvId) return;
+    if (!window.confirm("Are you sure you want to delete this chat?")) return;
+    setIsDeleting(true);
+    try {
+      const convIdToDelete = currentConvId;
+      await deleteConversation(convIdToDelete);
+      setMessages([]);
+      setCurrentConvId(null);
+      if (onConversationDeleted) {
+        onConversationDeleted(convIdToDelete);
+      }
+      const reloadSidebar = (window as unknown as Record<string, unknown>).__reloadSidebar;
+      if (typeof reloadSidebar === "function") {
+        (reloadSidebar as () => void)();
+      }
+    } catch (err) {
+      console.error("Failed to delete chat:", err);
+      alert("Failed to delete chat. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [currentConvId, onConversationDeleted]);
 
   // Sync conversationId prop — also clear attachments/errors for a fresh state
   useEffect(() => {
@@ -328,6 +356,57 @@ export default function ChatWindow({
       {dragOver && (
         <div className="drop-zone-overlay">
           <span>Drop files or folders to attach</span>
+        </div>
+      )}
+
+      {/* ─── Active Chat Header ─────────────────────────────────────── */}
+      {currentConvId && (
+        <div className="chat-window-header">
+          <div className="chat-window-header-info">
+            <span className="chat-window-header-status-dot" />
+            <span className="chat-window-header-title">
+              {type === "report" ? "Report Discussion" : "Active Chat"}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="chat-window-delete-btn"
+            title="Delete this chat"
+            aria-label="Delete this chat"
+            onClick={handleDeleteCurrentChat}
+            disabled={isDeleting}
+          >
+            {isDeleting ? (
+              <span
+                className="animate-spin"
+                style={{
+                  display: "inline-block",
+                  width: "12px",
+                  height: "12px",
+                  border: "2px solid currentColor",
+                  borderTopColor: "transparent",
+                  borderRadius: "50%",
+                }}
+              />
+            ) : (
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
+              </svg>
+            )}
+            <span>{isDeleting ? "Deleting..." : "Delete Chat"}</span>
+          </button>
         </div>
       )}
 

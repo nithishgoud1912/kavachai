@@ -339,6 +339,17 @@ export async function getConversation(
   return handleResponse<ConversationDetail>(res);
 }
 
+export async function deleteConversation(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`Failed to delete conversation: ${res.statusText}`);
+  }
+}
+
 export async function sendChatMessage(
   conversationId: string,
   content: string,
