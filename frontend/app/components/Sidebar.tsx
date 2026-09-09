@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSession } from "@/app/hooks/useSession";
-import { getConversations, getInvestigations } from "@/app/services/api";
+import { getConversations, getInvestigations, deleteConversation } from "@/app/services/api";
 import type { Conversation, InvestigationSummary } from "@/app/types";
 
 interface SidebarProps {
@@ -41,6 +41,25 @@ export default function Sidebar({
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingReports, setLoadingReports] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function handleDeleteConversation(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this chat?")) return;
+    setDeletingId(id);
+    try {
+      await deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (activeConversationId === id) {
+        onNewChat();
+      }
+    } catch (err) {
+      console.error("Failed to delete conversation:", err);
+      alert("Failed to delete chat. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const loadData = useCallback(async () => {
     try {
@@ -205,6 +224,44 @@ export default function Sidebar({
               </span>
               <span className="sidebar-item-title">{conv.title}</span>
               <span className="sidebar-item-meta">{timeAgo(conv.updated_at)}</span>
+              <button
+                type="button"
+                className="sidebar-item-delete-btn"
+                title="Delete chat"
+                aria-label="Delete chat"
+                disabled={deletingId === conv.id}
+                onClick={(e) => handleDeleteConversation(e, conv.id)}
+              >
+                {deletingId === conv.id ? (
+                  <span
+                    className="animate-spin"
+                    style={{
+                      display: "inline-block",
+                      width: "12px",
+                      height: "12px",
+                      border: "2px solid currentColor",
+                      borderTopColor: "transparent",
+                      borderRadius: "50%",
+                    }}
+                  />
+                ) : (
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <line x1="10" y1="11" x2="10" y2="17" />
+                    <line x1="14" y1="11" x2="14" y2="17" />
+                  </svg>
+                )}
+              </button>
             </div>
           ))
         )}

@@ -36,3 +36,19 @@ export async function GET(
     });
   });
 }
+
+export async function DELETE(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+
+  return proxyOrFallback(`/conversations/${id}`, req, () => {
+    const idx = mockConversations.findIndex((c) => c.id === id);
+    if (idx !== -1) {
+      mockConversations.splice(idx, 1);
+    }
+    delete mockConversationMessages[id];
+    return new Response(null, { status: 204 });
+  });
+}

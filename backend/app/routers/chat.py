@@ -16,10 +16,10 @@ import json
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 
 from app.db.database import get_db
 from app.db.sql_models import (
@@ -233,6 +233,29 @@ async def get_conversation(
             if msg.role != "system"  # Don't expose system prompts to client
         ],
     )
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a conversation and all its messages."""
+    result = await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Delete all messages in the conversation
+    await db.execute(
+        delete(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
+    )
+    # Delete the conversation record
+    await db.delete(conversation)
+    await db.commit()
+    return Response(status_code=204)
 
 
 async def _build_grounded_attachment_context(attachments: list, query: str) -> str:

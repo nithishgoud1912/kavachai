@@ -98,6 +98,12 @@ export default function Workspace() {
     setActiveConversationId(id);
   }
 
+  function handleConversationDeleted(id: string) {
+    if (activeConversationId === id) {
+      setActiveConversationId(null);
+    }
+  }
+
   function handleFilesAdded(newFiles: FileList | File[]) {
     const fileArray = Array.from(newFiles);
     if (fileArray.length === 0) return;
@@ -278,6 +284,7 @@ export default function Workspace() {
             conversationId={activeConversationId}
             type="general"
             onConversationCreated={handleConversationCreated}
+            onConversationDeleted={handleConversationDeleted}
           />
         ) : (
           /* ─── Investigation Mode ─────────────────────────────────── */
