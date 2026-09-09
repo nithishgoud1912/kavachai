@@ -1,14 +1,22 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/app/components/Sidebar";
 import ChatWindow from "@/app/components/ChatWindow";
 import SuggestedQuestions from "@/app/components/SuggestedQuestions";
+import PidRelationship from "@/app/components/PidRelationship";
 import { useSession } from "@/app/hooks/useSession";
-import { createInvestigation } from "@/app/services/api";
+import {
+  createInvestigation,
+  getKnowledgeBaseSummary,
+  getKnowledgeBaseGraph,
+  uploadDocument,
+  uploadDataset,
+} from "@/app/services/api";
+import type { KnowledgeBaseSummary, KnowledgeBaseGraph } from "@/app/types";
 
-type DashboardView = "chat" | "investigation";
+type DashboardView = "chat" | "investigation" | "knowledge";
 
 export default function Workspace() {
   const router = useRouter();
@@ -20,6 +28,47 @@ export default function Workspace() {
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Knowledge Base mode state
+  const [kbSummary, setKbSummary] = useState<KnowledgeBaseSummary | null>(null);
+  const [kbGraph, setKbGraph] = useState<KnowledgeBaseGraph | null>(null);
+  const [kbLoading, setKbLoading] = useState(false);
+  
+  // Document upload state
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docType, setDocType] = useState("inspection_report");
+  const [docEquipment, setDocEquipment] = useState("P-102");
+  const [docDepartment, setDocDepartment] = useState("Reliability");
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docMsg, setDocMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Dataset upload state
+  const [datasetFile, setDatasetFile] = useState<File | null>(null);
+  const [datasetEquipment, setDatasetEquipment] = useState("P-102");
+  const [uploadingDataset, setUploadingDataset] = useState(false);
+  const [datasetMsg, setDatasetMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const loadKnowledgeData = useCallback(async () => {
+    setKbLoading(true);
+    try {
+      const [sum, graph] = await Promise.all([
+        getKnowledgeBaseSummary().catch(() => null),
+        getKnowledgeBaseGraph().catch(() => null),
+      ]);
+      if (sum) setKbSummary(sum);
+      if (graph) setKbGraph(graph);
+    } catch {
+      // Handled gracefully
+    } finally {
+      setKbLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeView === "knowledge") {
+      loadKnowledgeData();
+    }
+  }, [activeView, loadKnowledgeData]);
 
   useEffect(() => {
     if (!sessionLoading && !isAuthenticated) {
@@ -87,6 +136,49 @@ export default function Workspace() {
     }
   }
 
+  async function handleDocUploadSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!docFile) return;
+    setUploadingDoc(true);
+    setDocMsg(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", docFile);
+      formData.append("document_type", docType);
+      formData.append("equipment_ids", JSON.stringify([docEquipment]));
+      formData.append("department_scope", docDepartment);
+      const res = await uploadDocument(formData);
+      setDocMsg({ type: "success", text: `Document ingested! ID: ${res.document_id} (${res.status})` });
+      setDocFile(null);
+      loadKnowledgeData();
+    } catch (err) {
+      setDocMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to upload document" });
+    } finally {
+      setUploadingDoc(false);
+    }
+  }
+
+  async function handleDatasetUploadSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!datasetFile) return;
+    setUploadingDataset(true);
+    setDatasetMsg(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", datasetFile);
+      formData.append("equipment_id", datasetEquipment);
+      formData.append("table_name", "plant_telemetry");
+      const res = await uploadDataset(formData);
+      setDatasetMsg({ type: "success", text: `Dataset ingested! ID: ${res.dataset_id} (${res.status})` });
+      setDatasetFile(null);
+      loadKnowledgeData();
+    } catch (err) {
+      setDatasetMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to upload dataset" });
+    } finally {
+      setUploadingDataset(false);
+    }
+  }
+
   return (
     <div className="dashboard-layout">
       {/* ─── Sidebar ───────────────────────────────────────────────── */}
@@ -123,6 +215,12 @@ export default function Workspace() {
               onClick={handleNewInvestigation}
             >
               🔍 Deep Investigation
+            </button>
+            <button
+              className={`mode-tab ${activeView === "knowledge" ? "active" : ""}`}
+              onClick={() => { setActiveView("knowledge"); setActiveConversationId(null); }}
+            >
+              📚 Plant Knowledge
             </button>
           </div>
 
@@ -170,7 +268,7 @@ export default function Workspace() {
             type="general"
             onConversationCreated={handleConversationCreated}
           />
-        ) : (
+        ) : activeView === "investigation" ? (
           /* ─── Investigation Mode ─────────────────────────────────── */
           <div
             style={{
@@ -297,6 +395,358 @@ export default function Workspace() {
 
               <div className="hero-fade-in-up hero-stagger-3" style={{ marginTop: "24px" }}>
                 <SuggestedQuestions onSelect={(q) => setQuery(q)} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* ─── Plant Knowledge Base View ──────────────────────────── */
+          <div
+            style={{
+              flex: 1,
+              padding: "32px 36px",
+              overflowY: "auto",
+              background: "var(--color-bg)",
+            }}
+          >
+            <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
+              <div style={{ marginBottom: "28px" }}>
+                <h2
+                  className="font-[family-name:var(--font-playfair)]"
+                  style={{
+                    fontSize: "1.75rem",
+                    fontWeight: 700,
+                    color: "var(--color-text)",
+                    letterSpacing: "-0.02em",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Plant Knowledge Base & Asset Ingestion
+                </h2>
+                <p style={{ fontSize: "0.875rem", color: "var(--color-text-3)" }}>
+                  Sovereign index of refinery operating manuals, P&ID topology, and time-series telemetry data.
+                </p>
+              </div>
+
+              {/* Stats Summary Cards */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "16px",
+                  marginBottom: "32px",
+                }}
+              >
+                <div
+                  className="card-shadow"
+                  style={{
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "12px",
+                    padding: "18px 20px",
+                  }}
+                >
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+                    Documents Indexed
+                  </div>
+                  <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--color-accent)" }}>
+                    {kbSummary ? kbSummary.documents : kbLoading ? "..." : 7}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-text-2)", marginTop: "4px" }}>
+                    Manuals, SOPs & Inspection Reports
+                  </div>
+                </div>
+
+                <div
+                  className="card-shadow"
+                  style={{
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "12px",
+                    padding: "18px 20px",
+                  }}
+                >
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+                    Telemetry Datasets
+                  </div>
+                  <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--color-teal)" }}>
+                    {kbSummary ? kbSummary.datasets : kbLoading ? "..." : 1}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-text-2)", marginTop: "4px" }}>
+                    Structured time-series tables
+                  </div>
+                </div>
+
+                <div
+                  className="card-shadow"
+                  style={{
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "12px",
+                    padding: "18px 20px",
+                  }}
+                >
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-text-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+                    P&ID Drawings
+                  </div>
+                  <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--color-text)" }}>
+                    {kbSummary ? kbSummary.pid_drawings : kbLoading ? "..." : 1}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--color-text-2)", marginTop: "4px" }}>
+                    Unit 101 Topological graph
+                  </div>
+                </div>
+              </div>
+
+              {/* P&ID Plant Topology Visualization */}
+              <div style={{ marginBottom: "36px" }}>
+                <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--color-text)", marginBottom: "12px" }}>
+                  Active Plant Topology (Unit 101)
+                </h3>
+                <PidRelationship
+                  components={
+                    kbGraph && kbGraph.nodes.length > 0
+                      ? kbGraph.nodes.map((n) => n.id)
+                      : ["T-101", "P-102", "V-204", "R-101"]
+                  }
+                  highlighted="P-102"
+                />
+              </div>
+
+              {/* Ingestion Forms Grid */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
+                  gap: "24px",
+                }}
+              >
+                {/* 1. Ingest Industrial Document */}
+                <div
+                  className="card-shadow"
+                  style={{
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "14px",
+                    padding: "24px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+                    <span style={{ fontSize: "1.25rem" }}>📄</span>
+                    <h3 style={{ fontSize: "1.0625rem", fontWeight: 600, color: "var(--color-text)" }}>
+                      Ingest Document
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: "0.8125rem", color: "var(--color-text-3)", marginBottom: "20px" }}>
+                    Upload an inspection report, SOP, or operating manual for semantic chunking and embedding.
+                  </p>
+
+                  <form onSubmit={handleDocUploadSubmit}>
+                    <div style={{ marginBottom: "14px" }}>
+                      <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-2)", marginBottom: "6px" }}>
+                        File (PDF, DOCX)
+                      </label>
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.txt"
+                        required
+                        onChange={(e) => setDocFile(e.target.files?.[0] || null)}
+                        style={{
+                          width: "100%",
+                          fontSize: "0.8125rem",
+                          color: "var(--color-text)",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--color-border)",
+                          background: "var(--color-surface-2)",
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-2)", marginBottom: "6px" }}>
+                          Document Type
+                        </label>
+                        <select
+                          value={docType}
+                          onChange={(e) => setDocType(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface-2)",
+                            color: "var(--color-text)",
+                            fontSize: "0.8125rem",
+                          }}
+                        >
+                          <option value="inspection_report">Inspection Report</option>
+                          <option value="manual">Operating Manual</option>
+                          <option value="sop">Safety SOP</option>
+                          <option value="other">General Documentation</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-2)", marginBottom: "6px" }}>
+                          Target Equipment ID
+                        </label>
+                        <input
+                          type="text"
+                          value={docEquipment}
+                          onChange={(e) => setDocEquipment(e.target.value)}
+                          placeholder="e.g. P-102"
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: "8px",
+                            border: "1px solid var(--color-border)",
+                            background: "var(--color-surface-2)",
+                            color: "var(--color-text)",
+                            fontSize: "0.8125rem",
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!docFile || uploadingDoc}
+                      style={{
+                        width: "100%",
+                        padding: "10px 16px",
+                        background: "var(--color-accent)",
+                        color: "#faf8f5",
+                        border: "none",
+                        borderRadius: "8px",
+                        fontWeight: 600,
+                        fontSize: "0.8125rem",
+                        cursor: !docFile || uploadingDoc ? "not-allowed" : "pointer",
+                        opacity: !docFile || uploadingDoc ? 0.5 : 1,
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      {uploadingDoc ? "Chunking & Ingesting..." : "Upload & Ingest Document"}
+                    </button>
+                  </form>
+
+                  {docMsg && (
+                    <div
+                      style={{
+                        marginTop: "14px",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        fontSize: "0.75rem",
+                        background: docMsg.type === "success" ? "rgba(45, 138, 110, 0.1)" : "rgba(186, 56, 56, 0.1)",
+                        color: docMsg.type === "success" ? "var(--color-teal)" : "var(--color-red)",
+                        border: `1px solid ${docMsg.type === "success" ? "var(--color-teal)" : "var(--color-red)"}`,
+                      }}
+                    >
+                      {docMsg.text}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Ingest Telemetry Dataset */}
+                <div
+                  className="card-shadow"
+                  style={{
+                    background: "var(--color-surface)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "14px",
+                    padding: "24px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
+                    <span style={{ fontSize: "1.25rem" }}>📊</span>
+                    <h3 style={{ fontSize: "1.0625rem", fontWeight: 600, color: "var(--color-text)" }}>
+                      Ingest Telemetry Dataset
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: "0.8125rem", color: "var(--color-text-3)", marginBottom: "20px" }}>
+                    Upload time-series telemetry CSV (vibration, temperature, pressure) for deterministic analytics.
+                  </p>
+
+                  <form onSubmit={handleDatasetUploadSubmit}>
+                    <div style={{ marginBottom: "14px" }}>
+                      <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-2)", marginBottom: "6px" }}>
+                        Dataset File (CSV, XLSX)
+                      </label>
+                      <input
+                        type="file"
+                        accept=".csv,.xlsx"
+                        required
+                        onChange={(e) => setDatasetFile(e.target.files?.[0] || null)}
+                        style={{
+                          width: "100%",
+                          fontSize: "0.8125rem",
+                          color: "var(--color-text)",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--color-border)",
+                          background: "var(--color-surface-2)",
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: "14px" }}>
+                      <label style={{ display: "block", fontSize: "0.75rem", color: "var(--color-text-2)", marginBottom: "6px" }}>
+                        Equipment ID
+                      </label>
+                      <input
+                        type="text"
+                        value={datasetEquipment}
+                        onChange={(e) => setDatasetEquipment(e.target.value)}
+                        placeholder="e.g. P-102"
+                        style={{
+                          width: "100%",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: "1px solid var(--color-border)",
+                          background: "var(--color-surface-2)",
+                          color: "var(--color-text)",
+                          fontSize: "0.8125rem",
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!datasetFile || uploadingDataset}
+                      style={{
+                        width: "100%",
+                        padding: "10px 16px",
+                        background: "var(--color-teal)",
+                        color: "#faf8f5",
+                        border: "none",
+                        borderRadius: "8px",
+                        fontWeight: 600,
+                        fontSize: "0.8125rem",
+                        cursor: !datasetFile || uploadingDataset ? "not-allowed" : "pointer",
+                        opacity: !datasetFile || uploadingDataset ? 0.5 : 1,
+                        transition: "all 0.2s ease",
+                      }}
+                    >
+                      {uploadingDataset ? "Ingesting Table..." : "Upload & Parse Telemetry"}
+                    </button>
+                  </form>
+
+                  {datasetMsg && (
+                    <div
+                      style={{
+                        marginTop: "14px",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        fontSize: "0.75rem",
+                        background: datasetMsg.type === "success" ? "rgba(45, 138, 110, 0.1)" : "rgba(186, 56, 56, 0.1)",
+                        color: datasetMsg.type === "success" ? "var(--color-teal)" : "var(--color-red)",
+                        border: `1px solid ${datasetMsg.type === "success" ? "var(--color-teal)" : "var(--color-red)"}`,
+                      }}
+                    >
+                      {datasetMsg.text}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

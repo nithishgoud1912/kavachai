@@ -40,6 +40,13 @@ export interface Session {
   name: string;
   department: string;
   issued_at: string;
+  expires_at?: string | null;
+}
+
+export interface SessionRevokeResponse {
+  session_id: string;
+  revoked: boolean;
+  message: string;
 }
 
 // ─── Knowledge Base ────────────────────────────────────────────────
@@ -48,6 +55,37 @@ export interface KnowledgeBaseSummary {
   documents: number;
   datasets: number;
   pid_drawings: number;
+}
+
+export interface GraphNode {
+  id: string;
+  type?: string;
+  label?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  relationship?: string;
+  type?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeBaseGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export interface DocumentDetail {
+  document_id: string;
+  filename: string;
+  document_type: string;
+  page_count: number;
+  chunk_count: number;
+  status: string;
+  created_at: string;
 }
 
 // ─── Investigation ─────────────────────────────────────────────────

@@ -11,6 +11,8 @@ export interface SessionState {
   logout: () => void;
 }
 
+import { getCurrentSession, revokeSession } from "@/app/services/api";
+
 const STORAGE_KEY = "kavachai_session";
 const SESSION_ID_KEY = "kavachai_session_id";
 
@@ -19,16 +21,33 @@ export function useSession(): SessionState {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setSession(JSON.parse(stored));
+    async function initSession() {
+      try {
+        const stored = sessionStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setSession(parsed);
+
+          // Verify with server in background
+          try {
+            const verified = await getCurrentSession();
+            setSession(verified);
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(verified));
+          } catch {
+            // Session expired or revoked on server
+            sessionStorage.removeItem(STORAGE_KEY);
+            sessionStorage.removeItem(SESSION_ID_KEY);
+            setSession(null);
+          }
+        }
+      } catch {
+        // Ignore parsing errors
+      } finally {
+        setIsLoading(false);
       }
-    } catch {
-      // Ignore sessionStorage parsing errors
-    } finally {
-      setIsLoading(false);
     }
+
+    initSession();
   }, []);
 
   const login = useCallback((newSession: Session) => {
@@ -42,6 +61,11 @@ export function useSession(): SessionState {
   }, []);
 
   const logout = useCallback(() => {
+    const currentId = session?.session_id || (typeof window !== "undefined" ? sessionStorage.getItem(SESSION_ID_KEY) : null);
+    if (currentId) {
+      revokeSession(currentId).catch(() => {});
+    }
+
     setSession(null);
     try {
       sessionStorage.removeItem(STORAGE_KEY);
@@ -49,7 +73,7 @@ export function useSession(): SessionState {
     } catch {
       // Ignore storage remove errors
     }
-  }, []);
+  }, [session]);
 
   // Sync across tabs
   useEffect(() => {
