@@ -1,6 +1,9 @@
 import type {
   Session,
+  SessionRevokeResponse,
   KnowledgeBaseSummary,
+  KnowledgeBaseGraph,
+  DocumentDetail,
   Investigation,
   InvestigationPlan,
   Report,
@@ -96,6 +99,24 @@ export async function createSession(
   return handleResponse<Session>(res);
 }
 
+export async function getCurrentSession(): Promise<Session> {
+  const res = await fetch(`${API_BASE}/session/me`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<Session>(res);
+}
+
+export async function revokeSession(sessionId?: string): Promise<SessionRevokeResponse> {
+  const res = await fetch(`${API_BASE}/session/revoke`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(sessionId ? { session_id: sessionId } : {}),
+    credentials: "include",
+  });
+  return handleResponse<SessionRevokeResponse>(res);
+}
+
 // ─── Knowledge Base ─────────────────────────────────────────────────
 
 export async function getKnowledgeBaseSummary(): Promise<KnowledgeBaseSummary> {
@@ -104,6 +125,22 @@ export async function getKnowledgeBaseSummary(): Promise<KnowledgeBaseSummary> {
     credentials: "include",
   });
   return handleResponse<KnowledgeBaseSummary>(res);
+}
+
+export async function getKnowledgeBaseGraph(): Promise<KnowledgeBaseGraph> {
+  const res = await fetch(`${API_BASE}/knowledge-base/graph`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<KnowledgeBaseGraph>(res);
+}
+
+export async function getDocument(documentId: string): Promise<DocumentDetail> {
+  const res = await fetch(`${API_BASE}/knowledge-base/documents/${encodeURIComponent(documentId)}`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<DocumentDetail>(res);
 }
 
 export async function uploadDocument(formData: FormData): Promise<{ document_id: string; status: string }> {
