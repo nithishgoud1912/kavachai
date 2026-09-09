@@ -468,7 +468,7 @@ async def _process_chat_file(
             if pages:
                 full_text = "\n\n".join(p["text"] for p in pages if p.get("text"))
                 if full_text:
-                    extracted_text_preview = full_text[:500]
+                    extracted_text_preview = full_text[:4000] if len(full_text) > 4000 else full_text
 
                 chunks = chunk_pages(pages)
                 if chunks:

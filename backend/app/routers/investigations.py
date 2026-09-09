@@ -169,7 +169,7 @@ async def upload_investigation_files(
 
         if pages:
             full_text = "\n\n".join(p["text"] for p in pages if p.get("text"))
-            preview_text = full_text[:500] if full_text else None
+            preview_text = (full_text[:4000] if len(full_text) > 4000 else full_text) if full_text else None
 
             # 3. Chunk text
             chunks = chunk_pages(pages)

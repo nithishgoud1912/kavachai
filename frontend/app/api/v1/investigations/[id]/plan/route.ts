@@ -8,9 +8,6 @@ export async function GET(
 ) {
   const { id } = await params;
   return proxyOrFallback(`/investigations/${id}/plan`, req, () => {
-    return NextResponse.json({
-      ...mockDefaultPlan,
-      investigation_id: id,
-    });
+    return NextResponse.json({ detail: "Plan not found" }, { status: 404 });
   });
 }

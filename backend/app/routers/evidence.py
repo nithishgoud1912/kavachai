@@ -142,6 +142,7 @@ async def get_document_page_render(source_id: str, page: int):
     raise HTTPException(status_code=404, detail="Page render not available")
 
 
+@router.get("/evidence/files/{source_id}/raw")
 @router.get("/files/{source_id}/raw")
 async def get_raw_file(source_id: str):
     """Serve raw uploaded file bytes."""
@@ -159,5 +160,9 @@ async def get_raw_file(source_id: str):
     elif suffix in {".txt", ".text", ".md", ".csv", ".json", ".log", ".tsv", ".yaml", ".yml"}:
         media_type = "text/plain; charset=utf-8"
 
-    return Response(content=file_bytes, media_type=media_type)
+    return Response(
+        content=file_bytes,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
