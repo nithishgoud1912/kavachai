@@ -5,12 +5,14 @@ Mirrors: API_Reference.md §4
 
 from pydantic import BaseModel
 from typing import List, Optional
+from app.models.chat import AttachmentItem, UploadResponse
 
 
 class InvestigationCreate(BaseModel):
     """POST /investigations request body."""
     query: str
-    session_id: str
+    session_id: Optional[str] = None
+    attachments: Optional[List[AttachmentItem]] = []
 
 
 class InvestigationCreateResponse(BaseModel):
@@ -18,6 +20,8 @@ class InvestigationCreateResponse(BaseModel):
     investigation_id: str
     status: str  # "planning"
     stream_url: str
+    attachments_count: int = 0
+
 
 
 class SubTaskResponse(BaseModel):

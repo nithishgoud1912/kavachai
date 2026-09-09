@@ -31,8 +31,9 @@ Available agents and their capabilities:
 Rules:
 1. Only assign agents that are relevant to the query. A safety/procedural question needs only document_agent and possibly rag_agent.
 2. If the query is clearly outside the scope of industrial plant operations (e.g., stock prices, weather, general knowledge), set is_in_scope to false and return empty sub_tasks.
-3. Each sub-task must have a clear, specific goal string.
-4. Keep sub-tasks focused — one goal per sub-task.
+3. If the user provided specific submitted files or folders for this investigation, the query is automatically IN SCOPE (is_in_scope: true). Formulate sub-tasks that specifically analyze the contents of the uploaded files.
+4. Each sub-task must have a clear, specific goal string.
+5. Keep sub-tasks focused — one goal per sub-task.
 
 Respond with ONLY valid JSON in this exact format:
 {
@@ -43,7 +44,11 @@ Respond with ONLY valid JSON in this exact format:
 }"""
 
 
-async def plan(query: str, corpus_summary: CorpusSummary) -> InvestigationPlan:
+async def plan(
+    query: str,
+    corpus_summary: CorpusSummary,
+    attached_files: Optional[list] = None,
+) -> InvestigationPlan:
     """
     Decompose a user query into an investigation plan.
     Implements: FR-PLN-1, FR-PLN-2, FR-PLN-3
@@ -51,17 +56,31 @@ async def plan(query: str, corpus_summary: CorpusSummary) -> InvestigationPlan:
     Args:
         query: the user's natural-language investigation question
         corpus_summary: overview of available documents/datasets/drawings
+        attached_files: optional list of files/folders submitted by the user
 
     Returns:
         InvestigationPlan with sub_tasks and is_in_scope flag
     """
+    attached_info = ""
+    if attached_files:
+        filenames = [
+            f.get("filename") if isinstance(f, dict) else str(f)
+            for f in attached_files
+        ]
+        attached_info = (
+            f"\n\nUSER-SUBMITTED FILES FOR THIS INVESTIGATION:\n"
+            f"- {len(filenames)} files uploaded: {', '.join(filenames[:10])}\n"
+            f"IMPORTANT: The user submitted these documents specifically to be investigated. "
+            f"Set is_in_scope to true and assign tasks to analyze these submitted files."
+        )
+
     prompt = f"""Query: "{query}"
 
 Available corpus:
 - {corpus_summary.documents} documents (types: {', '.join(corpus_summary.document_types) if corpus_summary.document_types else 'various'})
 - {corpus_summary.datasets} structured datasets
 - {corpus_summary.pid_drawings} P&ID drawings
-- Known equipment: {', '.join(corpus_summary.equipment_ids) if corpus_summary.equipment_ids else 'various'}
+- Known equipment: {', '.join(corpus_summary.equipment_ids) if corpus_summary.equipment_ids else 'various'}{attached_info}
 
 Decompose this query into sub-tasks. Respond with JSON only."""
 

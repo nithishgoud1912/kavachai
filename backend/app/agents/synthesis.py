@@ -26,8 +26,13 @@ Rules:
 1. ONLY use information present in the evidence bundle. Do NOT invent facts.
 2. NEVER perform arithmetic or numeric calculations — the Data Agent has already computed all trends and percentages. Quote those numbers exactly as given.
 3. Each finding must reference which evidence item(s) support it.
-4. Be precise and technical. Use specific values, not vague language.
-5. If the evidence is insufficient for a confident conclusion, say so explicitly.
+4. Produce separate, distinct findings for each type of evidence present:
+   - Generate finding(s) for Document Evidence (inspection/maintenance reports).
+   - Generate finding(s) for Data Analysis (sensor operating trends, percentage changes, threshold breaches).
+   - Generate finding(s) for P&ID / Specification Evidence if present.
+5. Generate distinct findings for each operational trend, threshold breach, and inspection observation. Aim for at least 2 distinct findings when multiple evidence sources exist. Do NOT collapse separate evidence types into a single combined finding.
+6. Be precise and technical. Use specific values, not vague language.
+7. If the evidence is insufficient for a confident conclusion, say so explicitly.
 
 Respond with ONLY valid JSON in this exact format:
 {
@@ -92,6 +97,17 @@ Produce findings that synthesize this evidence. Each finding must cite specific 
                 title=f.get("title", f"Finding {i+1}"),
                 detail=f.get("detail", ""),
                 evidence=evidence_items,
+            ))
+
+        # Safeguard: If data findings exist but were omitted from findings, ensure representation
+        has_data_finding = any(any(ev.type == "dataset" for ev in f.evidence) for f in findings)
+        if not has_data_finding and bundle.data_findings and bundle.data_findings.data_points:
+            df = bundle.data_findings
+            findings.append(DraftFinding(
+                id=f"f{len(findings)+1}",
+                title=f"Operating Parameter Trend: {df.trend.value.capitalize()}",
+                detail=f"Sensor analysis indicates a {df.trend.value} trend ({df.pct_change}% change) across recorded intervals.",
+                evidence=[EvidenceItem(type="dataset", source_id="dataset", label="Operating Data")],
             ))
 
         return DraftFindings(

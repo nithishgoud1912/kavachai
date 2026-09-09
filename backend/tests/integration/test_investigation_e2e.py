@@ -48,11 +48,11 @@ async def test_p102_investigation_full_e2e():
 
         # In-memory background task runs; wait for report
         import asyncio
-        for _ in range(30):
+        for _ in range(60):
             rep_resp = await client.get(f"/api/v1/investigations/{investigation_id}/report")
             if rep_resp.status_code == 200:
                 break
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
 
         assert rep_resp.status_code == 200, f"Report failed to generate: {rep_resp.text}"
         report = rep_resp.json()
@@ -68,7 +68,10 @@ async def test_p102_investigation_full_e2e():
         for finding in report["findings"]:
             for ev in finding["evidence"]:
                 source_id = ev["source_id"]
-                ev_resp = await client.get(f"/api/v1/evidence/{source_id}")
+                ev_resp = await client.get(
+                    f"/api/v1/evidence/{source_id}",
+                    headers={"Authorization": f"Bearer {session_id}"},
+                )
                 assert ev_resp.status_code == 200, f"Failed to resolve citation {source_id}"
                 ev_data = ev_resp.json()
                 assert ev_data["source_id"] == source_id

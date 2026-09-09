@@ -10,18 +10,27 @@ Endpoints: API_Reference.md §4
 
 import asyncio
 import json
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+import uuid
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List
 
 from app.db.database import get_db, async_session
-from app.db.sql_models import Investigation, Session as SessionModel
+from app.db.sql_models import Investigation, Session as SessionModel, Document
+from app.db.object_store import object_store
+from app.db.vector_store import vector_store
+from app.ingestion.extract import extract_text, get_page_count
+from app.ingestion.chunk import chunk_pages
+from app.ingestion.tag import tag_chunks
+from app.ingestion.embed import generate_embeddings
 from app.models.investigation import (
     InvestigationCreate, InvestigationCreateResponse, InvestigationPlanResponse,
     SubTaskResponse,
 )
+from app.models.chat import UploadResponse, BatchUploadResponse
 from app.orchestrator.investigation import InvestigationRunner
 from app.services.audit_service import create_audit_entry, resolve_audit_entry
 from app.deps import get_current_session, get_optional_session
@@ -53,6 +62,7 @@ async def list_investigations(
             "condition_summary": (inv.report or {}).get("condition_summary", ""),
             "confidence": inv.confidence,
             "verification_status": inv.verification_status,
+            "attachments_count": len(inv.attachments or []),
             "created_at": inv.created_at.isoformat() + "Z",
             "completed_at": (
                 inv.completed_at.isoformat() + "Z" if inv.completed_at else None
@@ -115,6 +125,111 @@ async def _cleanup_runner(investigation_id: str, delay_seconds: int = 60):
     _runners.pop(investigation_id, None)
 
 
+@router.post("/investigations/upload", response_model=BatchUploadResponse)
+async def upload_investigation_files(
+    files: List[UploadFile] = File(...),
+    paths: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Upload and index files or folder contents for a Deep Investigation.
+    Extracts text, chunks, embeds into ChromaDB, and registers in Document table.
+    """
+    path_list = []
+    if paths:
+        try:
+            path_list = json.loads(paths)
+        except Exception:
+            path_list = []
+
+    uploaded_results: List[UploadResponse] = []
+
+    for idx, file in enumerate(files):
+        if not file.filename:
+            continue
+
+        relative_path = path_list[idx] if idx < len(path_list) else file.filename
+        source_id = f"doc_{uuid.uuid4().hex[:8]}"
+        file_content = await file.read()
+        file_size = len(file_content)
+
+        # 1. Save raw file to object store
+        object_store.save_raw_file(source_id, file_content, file.filename)
+
+        # 2. Extract text
+        pages = extract_text(file_content, file.filename)
+        page_count = get_page_count(file_content, file.filename)
+
+        suffix = Path(file.filename).suffix.lower()
+        is_image = suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+        file_type = "image" if is_image else "document"
+
+        chunk_count = 0
+        preview_text = None
+
+        if pages:
+            full_text = "\n\n".join(p["text"] for p in pages if p.get("text"))
+            preview_text = full_text[:500] if full_text else None
+
+            # 3. Chunk text
+            chunks = chunk_pages(pages)
+
+            if chunks:
+                # 4. Tag chunks with metadata
+                tagged_chunks = tag_chunks(
+                    chunks=chunks,
+                    source_id=source_id,
+                    filename=file.filename,
+                    document_type="investigation_upload",
+                    equipment_ids=[],
+                    department_scope=None,
+                )
+
+                # 5. Generate embeddings and store in vector DB
+                texts = [c["text"] for c in tagged_chunks]
+                embeddings = await generate_embeddings(texts)
+                chunk_ids = [f"{source_id}_chunk_{i}" for i in range(len(tagged_chunks))]
+                metadatas = [c["metadata"] for c in tagged_chunks]
+                for m in metadatas:
+                    m["relative_path"] = relative_path
+
+                vector_store.upsert_chunks(chunk_ids, texts, embeddings, metadatas)
+                chunk_count = len(tagged_chunks)
+
+        # 6. Save document record in DB
+        doc = Document(
+            id=source_id,
+            filename=file.filename,
+            document_type="investigation_upload",
+            status="ready",
+            pages=page_count,
+            chunks=chunk_count,
+            equipment_ids=[],
+            department_scope=None,
+            source_id=source_id,
+        )
+        db.add(doc)
+        await db.commit()
+
+        file_url = f"/api/v1/files/{source_id}/raw"
+
+        uploaded_results.append(UploadResponse(
+            filename=file.filename,
+            url=file_url,
+            type=file_type,
+            extracted_text_preview=preview_text,
+            source_id=source_id,
+            path=relative_path,
+            size=file_size,
+            chunk_count=chunk_count,
+        ))
+
+    return BatchUploadResponse(
+        files=uploaded_results,
+        total_files=len(uploaded_results),
+    )
+
+
 @router.post("/investigations", response_model=InvestigationCreateResponse, status_code=202)
 async def create_investigation(
     body: InvestigationCreate,
@@ -143,11 +258,14 @@ async def create_investigation(
             if now > exp:
                 raise HTTPException(status_code=401, detail="Session has expired")
 
+    attachments_data = [a.model_dump() for a in body.attachments] if body.attachments else []
+
     # Create investigation
     investigation = Investigation(
         query=body.query,
         session_id=active_session.id,
         status="planning",
+        attachments=attachments_data,
     )
     db.add(investigation)
     await db.commit()
@@ -169,6 +287,7 @@ async def create_investigation(
         investigation_id=investigation.id,
         status="planning",
         stream_url=f"/api/v1/investigations/{investigation.id}/stream",
+        attachments_count=len(attachments_data),
     )
 
 
@@ -279,6 +398,8 @@ async def get_report(
         raise HTTPException(status_code=404, detail="Report not available")
 
     report_dict = dict(investigation.report)
+    if "attachments" not in report_dict:
+        report_dict["attachments"] = investigation.attachments or []
     if "query" not in report_dict or not report_dict["query"]:
         report_dict["query"] = investigation.query or "P-102 Investigation"
     if "findings" not in report_dict or report_dict["findings"] is None:

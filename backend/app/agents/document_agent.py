@@ -52,12 +52,14 @@ async def retrieve(
         where=where,
     )
 
-    # Convert to DocumentChunk contract and prioritize equipment matches
+    # Convert to DocumentChunk contract and prioritize equipment or uploaded source matches
     target_eids = set(filters.get("equipment_ids") or []) if filters else set()
+    target_sids = set(filters.get("source_ids") or []) if filters else set()
     chunks = []
     for r in results:
         meta = r.get("metadata", {}) or {}
         chunk_eids = set(meta.get("equipment_ids", "").split(",")) if meta.get("equipment_ids") else set()
+        chunk_sid = r.get("source_id", "")
         matches_eq = False
         if target_eids:
             matches_eq = bool(target_eids & chunk_eids) or any(eid in r["chunk_text"] for eid in target_eids)
@@ -65,6 +67,8 @@ async def retrieve(
         score = r.get("score", 0.0)
         if matches_eq:
             score += 0.5  # boost matching equipment chunks
+        if target_sids and chunk_sid in target_sids:
+            score += 0.8  # strong boost for user-uploaded investigation files
 
         chunks.append(DocumentChunk(
             chunk_text=r["chunk_text"],
@@ -95,6 +99,12 @@ def _build_where_filter(filters: Dict[str, Any]) -> Optional[Dict]:
 
     if "department_scope" in filters and filters["department_scope"]:
         conditions.append({"department_scope": filters["department_scope"]})
+
+    if "source_ids" in filters and filters["source_ids"]:
+        if len(filters["source_ids"]) == 1:
+            conditions.append({"source_id": filters["source_ids"][0]})
+        else:
+            conditions.append({"source_id": {"$in": filters["source_ids"]}})
 
     if not conditions:
         return None

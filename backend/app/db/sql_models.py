@@ -96,6 +96,7 @@ class Investigation(Base):
     confidence = Column(Integer, nullable=True)  # 0-100
     verification_status = Column(String, nullable=True)  # verified, partially_verified, unverified
     events = Column(JSON, default=list)  # SSE streaming timeline events for reconnection
+    attachments = Column(JSON, default=list)  # uploaded files and folders for this investigation
     created_at = Column(DateTime, default=utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
 
