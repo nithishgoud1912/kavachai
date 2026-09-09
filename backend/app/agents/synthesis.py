@@ -101,8 +101,8 @@ Produce findings that synthesize this evidence. Each finding must cite specific 
 
         # Safeguard: If data findings exist but were omitted from findings, ensure representation
         has_data_finding = any(any(ev.type == "dataset" for ev in f.evidence) for f in findings)
-        if not has_data_finding and bundle.data_findings and bundle.data_findings.data_points:
-            df = bundle.data_findings
+        if not has_data_finding and evidence_bundle.data_findings and evidence_bundle.data_findings.data_points:
+            df = evidence_bundle.data_findings
             findings.append(DraftFinding(
                 id=f"f{len(findings)+1}",
                 title=f"Operating Parameter Trend: {df.trend.value.capitalize()}",

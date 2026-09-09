@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-import fitz  # PyMuPDF — implements FR-ING-2
+import pymupdf  # PyMuPDF — implements FR-ING-2
 
 from app.config import settings
 
@@ -89,12 +89,12 @@ class ObjectStore:
             return None
 
         try:
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            doc = pymupdf.open(stream=file_bytes, filetype="pdf")
             if page < 1 or page > len(doc):
                 doc.close()
                 return None
 
-            pdf_page = doc[page - 1]  # fitz uses 0-indexed
+            pdf_page = doc[page - 1]  # 0-indexed
             pix = pdf_page.get_pixmap(dpi=150)
             png_bytes = pix.tobytes("png")
             doc.close()
@@ -113,7 +113,7 @@ class ObjectStore:
             return None
 
         try:
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            doc = pymupdf.open(stream=file_bytes, filetype="pdf")
             count = len(doc)
             doc.close()
             return count

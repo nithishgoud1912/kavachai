@@ -168,10 +168,29 @@ export async function uploadDataset(formData: FormData): Promise<{ dataset_id: s
 
 // ─── Investigations ─────────────────────────────────────────────────
 
+export async function uploadInvestigationFiles(
+  files: File[],
+  paths?: string[]
+): Promise<AttachmentItem[]> {
+  const formData = new FormData();
+  files.forEach((f) => formData.append("files", f));
+  if (paths && paths.length > 0) {
+    formData.append("paths", JSON.stringify(paths));
+  }
+  const res = await fetch(`${API_BASE}/investigations/upload`, {
+    method: "POST",
+    headers: { ...getAuthHeaders() },
+    body: formData,
+    credentials: "include",
+  });
+  const data = await handleResponse<{ files?: any[]; uploaded?: any[]; total_files: number }>(res);
+  return (data.files || data.uploaded || []) as AttachmentItem[];
+}
+
 export async function createInvestigation(
   query: string,
   sessionId: string,
-  attachments?: AttachmentItem[]
+  attachments: any[] = []
 ): Promise<Investigation> {
   const res = await fetch(`${API_BASE}/investigations`, {
     method: "POST",
@@ -352,26 +371,6 @@ export async function uploadChatFile(
   return handleResponse<UploadedFile>(res);
 }
 
-export async function uploadInvestigationFiles(
-  files: File[],
-  paths?: string[]
-): Promise<AttachmentItem[]> {
-  const formData = new FormData();
-  files.forEach((f) => formData.append("files", f));
-  if (paths && paths.length > 0) {
-    formData.append("paths", JSON.stringify(paths));
-  }
-  const res = await fetch(`${API_BASE}/investigations/upload`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    body: formData,
-    credentials: "include",
-  });
-  if (!res.ok) throw new Error("Upload failed");
-  const data = await res.json();
-  return data.uploaded;
-}
-
 export async function uploadChatFilesBatch(
   files: File[],
   paths?: string[]
@@ -383,13 +382,13 @@ export async function uploadChatFilesBatch(
   }
   const res = await fetch(`${API_BASE}/conversations/upload-batch`, {
     method: "POST",
-    headers: getAuthHeaders(),
+    headers: { ...getAuthHeaders() },
     body: formData,
     credentials: "include",
   });
   if (!res.ok) throw new Error("Batch upload failed");
   const data = await res.json();
-  return data.uploaded;
+  return (data.uploaded || data.files || []) as AttachmentItem[];
 }
 
 // ─── Investigation List ─────────────────────────────────────────────

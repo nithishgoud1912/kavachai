@@ -51,7 +51,7 @@ class CorpusSummary(BaseModel):
 class DocumentChunk(BaseModel):
     chunk_text: str
     source_id: str
-    page: int
+    page: Optional[int] = 1
     score: float
 
 

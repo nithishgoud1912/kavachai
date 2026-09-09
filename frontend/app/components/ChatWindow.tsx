@@ -19,88 +19,7 @@ interface ChatWindowProps {
   compact?: boolean;
 }
 
-// ─── Markdown Renderer ────────────────────────────────────────────────
-function renderMarkdown(text: string): string {
-  // Escape HTML first
-  let html = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  // Code blocks (must be first to avoid other replacements inside them)
-  const codeBlocks: string[] = [];
-  html = html.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, code) => {
-    const idx = codeBlocks.length;
-    codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
-    return `%%CODE_BLOCK_${idx}%%`;
-  });
-
-  // Markdown tables
-  html = html.replace(/^\|(.+)\|\s*\n\|[-| :]+\|\s*\n((?:\|.+\|\s*\n?)*)/gm, (match, header, body) => {
-    const headers = header.split("|").map((h: string) => h.trim()).filter(Boolean);
-    const rows = body.trim().split("\n").map((row: string) =>
-      row.split("|").map((c: string) => c.trim()).filter(Boolean)
-    );
-    const headerHtml = headers.map((h: string) => `<th>${h}</th>`).join("");
-    const rowsHtml = rows.map((cells: string[]) =>
-      `<tr>${cells.map((c: string) => `<td>${c}</td>`).join("")}</tr>`
-    ).join("");
-    return `<table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
-  });
-
-  // Headings h1-h3
-  html = html
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>");
-
-  // Bold & italic
-  html = html
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
-
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-
-  // Horizontal rule
-  html = html.replace(/^---$/gm, "<hr/>");
-
-  // Blockquote
-  html = html.replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>");
-
-  // Lists
-  html = html
-    .replace(/^[-*] (.+)$/gm, "<li>$1</li>")
-    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
-  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
-
-  // Paragraphs (split on double newlines)
-  html = html
-    .split(/\n{2,}/)
-    .map((block) => {
-      const trimmed = block.trim();
-      if (!trimmed) return "";
-      if (
-        trimmed.startsWith("<pre>") ||
-        trimmed.startsWith("<ul>") ||
-        trimmed.startsWith("<ol>") ||
-        trimmed.startsWith("<h") ||
-        trimmed.startsWith("<table>") ||
-        trimmed.startsWith("<blockquote>") ||
-        trimmed.startsWith("<hr")
-      )
-        return trimmed;
-      return `<p>${trimmed.replace(/\n/g, "<br/>")}</p>`;
-    })
-    .join("");
-
-  // Restore code blocks
-  codeBlocks.forEach((block, i) => {
-    html = html.replace(`%%CODE_BLOCK_${i}%%`, block);
-  });
-
-  return html;
-}
+import MarkdownMessage from "@/app/components/MarkdownMessage";
 
 
 // ─── Suggested Chips for Empty State ──────────────────────────────────
@@ -558,7 +477,7 @@ export default function ChatWindow({
                 )}
 
                 {/* Render message content */}
-                <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                <MarkdownMessage content={msg.content} />
               </div>
               <div
                 className="chat-timestamp"
