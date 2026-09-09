@@ -1,0 +1,96 @@
+services:
+  # ─── 1. FastAPI Backend Service ────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kavachai-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - LLM_MODEL=${LLM_MODEL:-qwen2.5:3b}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - SQLITE_DB_PATH=/app/data/kavachai.db
+      - CHROMA_DB_PATH=/app/data/chroma
+      - OBJECT_STORE_PATH=/app/data/objects
+      - CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+      - LLM_TIMEOUT_SECONDS=60
+      - AGENT_TIMEOUT_SECONDS=30
+    volumes:
+      - kavachai_data:/app/data
+      - ./backend/corpus:/app/corpus:ro
+    extra_hosts:
+      # Allows reaching Ollama on the host machine via host.docker.internal
+      - "host.docker.internal:host-gateway"
+    networks:
+      - kavachai-network
+    depends_on:
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── 2. Next.js 15 Frontend Service ───────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kavachai-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BACKEND_URL=http://backend:8000/api/v1
+      - NEXT_PUBLIC_API_URL=/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - kavachai-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ─── 3. Local Ollama LLM / Embeddings Engine ───────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: kavachai-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - kavachai-network
+    # To enable NVIDIA GPU acceleration (requires nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  kavachai_data:
+    name: kavachai_data
+  ollama_models:
+    name: kavachai_ollama_models
+
+networks:
+  kavachai-network:
+    name: kavachai-network
+    driver: bridge
