@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { marked } from "marked";
+import MermaidDiagram from "@/app/components/MermaidDiagram";
 
 // Configure marked for GitHub-flavored markdown with line breaks
 marked.setOptions({
@@ -86,6 +87,7 @@ function CodeCard({ lang, code }: { lang?: string; code: string }) {
         </button>
       </div>
       <pre
+        className="code-card-pre"
         style={{
           margin: 0,
           padding: "14px 16px",
@@ -93,10 +95,24 @@ function CodeCard({ lang, code }: { lang?: string; code: string }) {
           fontSize: "0.8125rem",
           lineHeight: "1.55",
           color: "#f4f4f5",
+          background: "#18181b",
           fontFamily: "var(--font-mono)",
         }}
       >
-        <code>{code}</code>
+        <code
+          className="code-card-code"
+          style={{
+            background: "transparent",
+            color: "#f4f4f5",
+            padding: 0,
+            borderRadius: 0,
+            fontFamily: "var(--font-mono)",
+            display: "block",
+            whiteSpace: "pre",
+          }}
+        >
+          {code}
+        </code>
       </pre>
     </div>
   );
@@ -169,6 +185,15 @@ export default function MarkdownMessage({ content, className = "" }: MarkdownMes
     <div className={`markdown-message-content ${className}`}>
       {blocks.map((block, index) => {
         if (block.type === "code") {
+          if (block.lang?.toLowerCase() === "mermaid") {
+            return (
+              <MermaidDiagram
+                key={`mermaid-${index}-${block.content.substring(0, 15)}`}
+                code={block.content}
+              />
+            );
+          }
+
           return (
             <CodeCard
               key={`code-${index}-${block.content.substring(0, 15)}`}
