@@ -41,10 +41,13 @@ export async function proxyOrFallback(
     });
     clearTimeout(timeoutId);
 
-    // If backend replied (2xx, 3xx, 4xx, or 5xx), return the actual backend response
-    return res;
+    // If backend replied with success, return it. Otherwise, fall back.
+    if (res.ok) {
+      return res;
+    }
+    throw new Error(`Backend returned status ${res.status}`);
   } catch (err) {
-    console.warn(`[Proxy] Backend at ${BACKEND_URL}${path} unreachable, falling back to mock:`, err);
+    console.warn(`[Proxy] Backend at ${BACKEND_URL}${path} unreachable or failed, falling back to mock:`, err);
     return fallback(rawBody, parsedJson);
   }
 }

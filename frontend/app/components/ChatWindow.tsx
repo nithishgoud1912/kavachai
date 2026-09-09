@@ -18,30 +18,62 @@ interface ChatWindowProps {
   compact?: boolean;
 }
 
-// ─── Simple Markdown Renderer ─────────────────────────────────────────
+// ─── Markdown Renderer ────────────────────────────────────────────────
 function renderMarkdown(text: string): string {
+  // Escape HTML first
   let html = text
-    // Escape HTML
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    // Code blocks (triple backtick)
-    .replace(/```(\w*)\n?([\s\S]*?)```/g, "<pre><code>$2</code></pre>")
-    // Inline code
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    // Bold
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    // Italic
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    // Unordered lists
-    .replace(/^[-*] (.+)$/gm, "<li>$1</li>")
-    // Numbered lists
-    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
+    .replace(/>/g, "&gt;");
 
-  // Wrap consecutive <li> in <ul>
+  // Code blocks (must be first to avoid other replacements inside them)
+  const codeBlocks: string[] = [];
+  html = html.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, code) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
+    return `%%CODE_BLOCK_${idx}%%`;
+  });
+
+  // Markdown tables
+  html = html.replace(/^\|(.+)\|\s*\n\|[-| :]+\|\s*\n((?:\|.+\|\s*\n?)*)/gm, (match, header, body) => {
+    const headers = header.split("|").map((h: string) => h.trim()).filter(Boolean);
+    const rows = body.trim().split("\n").map((row: string) =>
+      row.split("|").map((c: string) => c.trim()).filter(Boolean)
+    );
+    const headerHtml = headers.map((h: string) => `<th>${h}</th>`).join("");
+    const rowsHtml = rows.map((cells: string[]) =>
+      `<tr>${cells.map((c: string) => `<td>${c}</td>`).join("")}</tr>`
+    ).join("");
+    return `<table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
+  });
+
+  // Headings h1-h3
+  html = html
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>");
+
+  // Bold & italic
+  html = html
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Horizontal rule
+  html = html.replace(/^---$/gm, "<hr/>");
+
+  // Blockquote
+  html = html.replace(/^&gt; (.+)$/gm, "<blockquote>$1</blockquote>");
+
+  // Lists
+  html = html
+    .replace(/^[-*] (.+)$/gm, "<li>$1</li>")
+    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
   html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
 
-  // Paragraphs (split by double newline)
+  // Paragraphs (split on double newlines)
   html = html
     .split(/\n{2,}/)
     .map((block) => {
@@ -50,15 +82,25 @@ function renderMarkdown(text: string): string {
       if (
         trimmed.startsWith("<pre>") ||
         trimmed.startsWith("<ul>") ||
-        trimmed.startsWith("<ol>")
+        trimmed.startsWith("<ol>") ||
+        trimmed.startsWith("<h") ||
+        trimmed.startsWith("<table>") ||
+        trimmed.startsWith("<blockquote>") ||
+        trimmed.startsWith("<hr")
       )
         return trimmed;
       return `<p>${trimmed.replace(/\n/g, "<br/>")}</p>`;
     })
     .join("");
 
+  // Restore code blocks
+  codeBlocks.forEach((block, i) => {
+    html = html.replace(`%%CODE_BLOCK_${i}%%`, block);
+  });
+
   return html;
 }
+
 
 // ─── Suggested Chips for Empty State ──────────────────────────────────
 const GENERAL_SUGGESTIONS = [
@@ -66,6 +108,8 @@ const GENERAL_SUGGESTIONS = [
   "Explain vibration analysis techniques for rotating equipment",
   "What PPE is required for confined space entry?",
   "Summarize ISO 13849 safety standards",
+  "How do I perform a root cause analysis for equipment failure?",
+  "What is the ISO 10816 vibration severity standard?",
 ];
 
 const REPORT_SUGGESTIONS = [
@@ -74,6 +118,22 @@ const REPORT_SUGGESTIONS = [
   "Are there any unverified findings?",
   "What maintenance actions are recommended?",
 ];
+
+const ALLOWED_EXTENSIONS = new Set([
+  ".pdf",
+  ".txt",
+  ".csv",
+  ".docx",
+  ".text",
+  ".md",
+  ".json",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".svg",
+]);
 
 export default function ChatWindow({
   conversationId,
@@ -89,15 +149,19 @@ export default function ChatWindow({
   const [loading, setLoading] = useState(false);
   const [currentConvId, setCurrentConvId] = useState<string | null>(conversationId);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState<number>(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync conversationId prop
+  // Sync conversationId prop — also clear attachments/errors for a fresh state
   useEffect(() => {
     setCurrentConvId(conversationId);
+    setAttachments([]);
+    setUploadError(null);
   }, [conversationId]);
 
   // Load conversation messages when conversationId changes
@@ -139,28 +203,75 @@ export default function ChatWindow({
     }
   }, []);
 
-  // ─── File Upload ──────────────────────────────────────────────────
+  // ─── File Upload (Multiple files & Folders) ────────────────────────
   const handleFileUpload = useCallback(async (files: FileList | File[]) => {
-    for (const file of Array.from(files)) {
-      setUploading(true);
-      try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const result = await uploadChatFile(formData);
-        setAttachments((prev) => [
-          ...prev,
-          {
+    setUploadError(null);
+    const rawFiles = Array.from(files);
+    if (rawFiles.length === 0) return;
+
+    // Filter out hidden/system files and validate extensions
+    const validFiles = rawFiles.filter((file) => {
+      if (file.name.startsWith(".") || file.name === "Thumbs.db" || file.name === "desktop.ini") {
+        return false;
+      }
+      const dotIndex = file.name.lastIndexOf(".");
+      if (dotIndex === -1) return false;
+      const ext = file.name.substring(dotIndex).toLowerCase();
+      return ALLOWED_EXTENSIONS.has(ext);
+    });
+
+    if (validFiles.length === 0) {
+      setUploadError(
+        "No supported files found. Supported formats: PDF, TXT, CSV, DOCX, MD, JSON, PNG, JPG, WEBP, GIF, SVG."
+      );
+      return;
+    }
+
+    setUploadingCount(validFiles.length);
+
+    try {
+      const results = await Promise.allSettled(
+        validFiles.map(async (file) => {
+          const formData = new FormData();
+          formData.append("file", file);
+          return await uploadChatFile(formData);
+        })
+      );
+
+      const newAttachments: ChatAttachment[] = [];
+      let failCount = 0;
+
+      for (const res of results) {
+        if (res.status === "fulfilled") {
+          const result = res.value;
+          newAttachments.push({
             filename: result.filename,
             url: result.url,
             type: result.type as "document" | "image",
             extracted_text: result.extracted_text_preview || undefined,
-          },
-        ]);
-      } catch {
-        // Could show error toast
-      } finally {
-        setUploading(false);
+          });
+        } else {
+          failCount++;
+          console.error("File upload error:", res.reason);
+        }
       }
+
+      if (newAttachments.length > 0) {
+        setAttachments((prev) => [...prev, ...newAttachments]);
+      }
+
+      if (failCount > 0) {
+        setUploadError(
+          failCount === validFiles.length
+            ? "Failed to upload selected file(s). Please try again."
+            : `${failCount} of ${validFiles.length} file(s) could not be uploaded.`
+        );
+      }
+    } catch (err) {
+      console.error("Batch upload error:", err);
+      setUploadError(err instanceof Error ? err.message : "Failed to upload files");
+    } finally {
+      setUploadingCount(0);
     }
   }, []);
 
@@ -177,6 +288,10 @@ export default function ChatWindow({
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const clearAllAttachments = useCallback(() => {
+    setAttachments([]);
   }, []);
 
   // ─── Send Message ─────────────────────────────────────────────────
@@ -239,14 +354,21 @@ export default function ChatWindow({
             created_at: response.created_at,
           },
         ]);
-      } catch {
+      } catch (err) {
+        console.error("Chat send error:", err);
+        const errMsg =
+          err instanceof Error
+            ? err.message
+            : "Sorry, I encountered an error. Please try again.";
         // Show error in chat
         setMessages((prev) => [
           ...prev,
           {
             id: `error-${Date.now()}`,
             role: "assistant" as const,
-            content: "Sorry, I encountered an error. Please try again.",
+            content: errMsg.includes("error")
+              ? errMsg
+              : `Sorry, I encountered an error: ${errMsg}`,
             attachments: [],
             created_at: new Date().toISOString(),
           },
@@ -286,7 +408,7 @@ export default function ChatWindow({
       {/* Drop zone overlay */}
       {dragOver && (
         <div className="drop-zone-overlay">
-          <span>Drop file to attach</span>
+          <span>Drop files or folders to attach</span>
         </div>
       )}
 
@@ -309,37 +431,38 @@ export default function ChatWindow({
         </div>
       ) : messages.length === 0 && !sending ? (
         <div className="chat-empty">
-          <div className="chat-empty-icon">
-            {type === "report" ? "📋" : "💬"}
+          <div className="chat-empty-icon" style={{ fontSize: "2.5rem" }}>
+            {type === "report" ? "📋" : "🛡️"}
           </div>
           <div>
             <h3
               className="font-[family-name:var(--font-playfair)]"
               style={{
-                fontSize: "1.25rem",
+                fontSize: "1.375rem",
                 fontWeight: 400,
                 color: "var(--color-text)",
                 marginBottom: "8px",
+                letterSpacing: "-0.02em",
               }}
             >
               {type === "report"
                 ? "Ask about this report"
-                : "Start a conversation"}
+                : "What can I help you investigate?"}
             </h3>
-            <p style={{ fontSize: "0.8125rem", color: "var(--color-text-3)" }}>
+            <p style={{ fontSize: "0.8125rem", color: "var(--color-text-3)", marginBottom: "4px" }}>
               {type === "report"
                 ? "Ask follow-up questions grounded in the investigation findings."
-                : "Ask about industrial safety, equipment health, or engineering standards."}
+                : "Ask about industrial safety, equipment health, or engineering standards. You can also attach files below."}
             </p>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", maxWidth: "560px" }}>
             {suggestions.map((q, i) => (
               <button
                 key={i}
                 onClick={() => handleSend(q)}
                 className="animate-fade-in-up-small"
                 style={{
-                  animationDelay: `${(i + 1) * 80}ms`,
+                  animationDelay: `${(i + 1) * 60}ms`,
                   background: "var(--color-surface-2)",
                   border: "1px solid var(--color-border)",
                   borderRadius: "10px",
@@ -347,17 +470,22 @@ export default function ChatWindow({
                   fontSize: "0.75rem",
                   color: "var(--color-text-2)",
                   cursor: "pointer",
-                  transition: "all 0.15s ease",
+                  transition: "all 0.2s ease",
                   maxWidth: "260px",
                   textAlign: "left",
+                  lineHeight: 1.4,
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.borderColor = "var(--color-accent)";
                   e.currentTarget.style.color = "var(--color-accent)";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = "var(--color-border)";
                   e.currentTarget.style.color = "var(--color-text-2)";
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "none";
                 }}
               >
                 {q}
@@ -435,9 +563,51 @@ export default function ChatWindow({
 
       {/* ─── Composer ────────────────────────────────────────────────── */}
       <div className="chat-composer">
+        {/* Upload error banner */}
+        {uploadError && (
+          <div
+            style={{
+              padding: "6px 12px",
+              marginBottom: "8px",
+              background: "rgba(186, 56, 56, 0.1)",
+              border: "1px solid rgba(186, 56, 56, 0.25)",
+              borderRadius: "8px",
+              fontSize: "0.75rem",
+              color: "var(--color-red)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>{uploadError}</span>
+            <button
+              onClick={() => setUploadError(null)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--color-red)",
+                cursor: "pointer",
+                fontWeight: "bold",
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Attachment previews */}
         {attachments.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "6px",
+              marginBottom: "8px",
+              maxHeight: "120px",
+              overflowY: "auto",
+              paddingRight: "4px",
+            }}
+          >
             {attachments.map((att, i) => (
               <span key={i} className="attachment-chip">
                 {att.type === "image" ? "🖼" : "📄"}
@@ -447,13 +617,30 @@ export default function ChatWindow({
                 </button>
               </span>
             ))}
-            {uploading && (
-              <span className="attachment-chip" style={{ opacity: 0.6 }}>
+            {attachments.length > 2 && (
+              <button
+                type="button"
+                onClick={clearAllAttachments}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--color-text-3)",
+                  fontSize: "0.6875rem",
+                  cursor: "pointer",
+                  padding: "2px 6px",
+                  textDecoration: "underline",
+                }}
+              >
+                Clear all ({attachments.length})
+              </button>
+            )}
+            {uploadingCount > 0 && (
+              <span className="attachment-chip" style={{ opacity: 0.8 }}>
                 <svg className="animate-spin" width="12" height="12" viewBox="0 0 24 24" fill="none">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.3" />
                   <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                 </svg>
-                Uploading…
+                {uploadingCount === 1 ? "Uploading 1 file…" : `Uploading ${uploadingCount} files…`}
               </span>
             )}
           </div>
@@ -461,11 +648,11 @@ export default function ChatWindow({
 
         <form onSubmit={handleSubmit}>
           <div className="chat-composer-inner">
-            {/* Attach button */}
+            {/* Attach multiple files button */}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              title="Attach file"
+              title="Attach files (select multiple files)"
               style={{
                 background: "none",
                 border: "none",
@@ -485,10 +672,47 @@ export default function ChatWindow({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.txt,.csv,.docx,.png,.jpg,.jpeg,.webp,.gif,.md"
+              multiple
+              accept=".pdf,.txt,.csv,.docx,.png,.jpg,.jpeg,.webp,.gif,.md,.json"
               style={{ display: "none" }}
               onChange={(e) => {
-                if (e.target.files) handleFileUpload(e.target.files);
+                if (e.target.files && e.target.files.length > 0) {
+                  handleFileUpload(e.target.files);
+                }
+                e.target.value = "";
+              }}
+            />
+
+            {/* Attach folder button */}
+            <button
+              type="button"
+              onClick={() => folderInputRef.current?.click()}
+              title="Attach folder (select directory)"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "4px",
+                color: "var(--color-text-3)",
+                transition: "color 0.15s ease",
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-accent)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--color-text-3)")}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+            </button>
+            <input
+              ref={folderInputRef}
+              type="file"
+              {...{ webkitdirectory: "", directory: "", multiple: true }}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleFileUpload(e.target.files);
+                }
                 e.target.value = "";
               }}
             />

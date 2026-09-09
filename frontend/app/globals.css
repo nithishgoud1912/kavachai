@@ -437,6 +437,56 @@ select:focus-visible {
   color: var(--color-text);
 }
 
+.chat-bubble table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 0.8125rem;
+}
+
+.chat-bubble th,
+.chat-bubble td {
+  border: 1px solid var(--color-border);
+  padding: 6px 12px;
+  text-align: left;
+}
+
+.chat-bubble th {
+  background: var(--color-surface-2);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.chat-bubble tr:nth-child(even) td {
+  background: rgba(196, 93, 62, 0.03);
+}
+
+.chat-bubble h1, .chat-bubble h2, .chat-bubble h3 {
+  font-family: var(--font-playfair);
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 8px 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.chat-bubble h1 { font-size: 1.1rem; }
+.chat-bubble h2 { font-size: 1rem; }
+.chat-bubble h3 { font-size: 0.9375rem; border-bottom: 1px solid var(--color-border); padding-bottom: 4px; }
+
+.chat-bubble blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding: 4px 12px;
+  margin: 4px 0;
+  color: var(--color-text-2);
+  font-style: italic;
+}
+
+.chat-bubble hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 8px 0;
+}
+
 .chat-timestamp {
   font-size: 0.625rem;
   color: var(--color-text-3);
@@ -561,7 +611,8 @@ select:focus-visible {
 
 .chat-empty-icon {
   font-size: 3rem;
-  opacity: 0.3;
+  opacity: 0.5;
+  filter: drop-shadow(0 4px 12px rgba(196, 93, 62, 0.15));
 }
 
 /* ─── File Drop Zone ───────────────────────────────────────────────── */
