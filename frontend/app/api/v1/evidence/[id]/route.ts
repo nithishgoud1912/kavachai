@@ -8,18 +8,6 @@ export async function GET(
 ) {
   const { id } = await params;
   return proxyOrFallback(`/evidence/${id}`, req, () => {
-    const evidence = mockEvidenceMap[id];
-    if (evidence) {
-      return NextResponse.json(evidence);
-    }
-    // Default fallback document if unknown ID
-    return NextResponse.json({
-      source_id: id,
-      type: "document",
-      filename: `Evidence_${id}.pdf`,
-      page: 1,
-      excerpt: `Evidence excerpt corresponding to technical source identifier ${id}. Verified against local sovereign knowledge base.`,
-      view_url: `/files/${id}/page/1`,
-    });
+    return NextResponse.json({ detail: "Evidence not found" }, { status: 404 });
   });
 }
