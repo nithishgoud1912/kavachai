@@ -8,11 +8,14 @@ from typing import List, Optional
 
 
 class AttachmentItem(BaseModel):
-    """A file attachment on a chat message."""
+    """A file attachment on a chat message or investigation."""
     filename: str
     url: str
     type: str  # "document" | "image"
     extracted_text: Optional[str] = None
+    source_id: Optional[str] = None
+    path: Optional[str] = None  # relative folder path e.g. "folder/subfolder/file.pdf"
+    size: Optional[int] = None
 
 
 class SendMessageRequest(BaseModel):
@@ -66,3 +69,14 @@ class UploadResponse(BaseModel):
     url: str
     type: str  # "document" | "image"
     extracted_text_preview: Optional[str] = None
+    source_id: Optional[str] = None
+    path: Optional[str] = None
+    size: Optional[int] = None
+    chunk_count: Optional[int] = None
+
+
+class BatchUploadResponse(BaseModel):
+    """Batch upload response for multiple files / folders."""
+    files: List[UploadResponse]
+    total_files: int
+

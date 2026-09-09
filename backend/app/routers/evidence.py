@@ -5,9 +5,11 @@ Endpoint: GET /evidence/{source_id} (API_Reference.md §5)
 """
 
 import re
+from pathlib import Path
 import pandas as pd
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -123,3 +125,39 @@ async def get_evidence(
         )
 
     raise HTTPException(status_code=404, detail="Evidence not found")
+
+
+@router.get("/files/{source_id}/page/{page}")
+async def get_document_page_render(source_id: str, page: int):
+    """Serve a rendered PNG page of a PDF document for the Source Viewer."""
+    png_bytes = object_store.get_file_page(source_id, page)
+    if png_bytes:
+        return Response(content=png_bytes, media_type="image/png")
+
+    raw = object_store.get_raw_file(source_id)
+    if raw:
+        file_bytes, filename = raw
+        return Response(content=file_bytes, media_type="text/plain; charset=utf-8")
+
+    raise HTTPException(status_code=404, detail="Page render not available")
+
+
+@router.get("/files/{source_id}/raw")
+async def get_raw_file(source_id: str):
+    """Serve raw uploaded file bytes."""
+    raw = object_store.get_raw_file(source_id)
+    if not raw:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_bytes, filename = raw
+    suffix = Path(filename).suffix.lower()
+    media_type = "application/octet-stream"
+    if suffix == ".pdf":
+        media_type = "application/pdf"
+    elif suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        media_type = f"image/{suffix.lstrip('.')}"
+    elif suffix in {".txt", ".text", ".md", ".csv", ".json", ".log", ".tsv", ".yaml", ".yml"}:
+        media_type = "text/plain; charset=utf-8"
+
+    return Response(content=file_bytes, media_type=media_type)
+

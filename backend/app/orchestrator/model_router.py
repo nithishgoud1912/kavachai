@@ -381,6 +381,33 @@ class ModelRouter:
                 "condition_summary": f"Investigation completed for {equip}"
             })
 
+        # Check if user submitted files/documents
+        has_submitted_files = "user-submitted files" in p_lower or "attached file" in p_lower or "evidence from user-submitted" in p_lower
+
+        if has_submitted_files:
+            if fmt == "json" or task_type in ("classification", "planning") or "sub_tasks" in p_lower:
+                return json.dumps({
+                    "is_in_scope": True,
+                    "sub_tasks": [
+                        {"agent": "document_agent", "goal": "Analyze passages, reports, and data in the submitted documents"},
+                        {"agent": "rag_agent", "goal": "Retrieve specifications, limits, and rules from the submitted documents"}
+                    ]
+                })
+
+            if task_type == "synthesis" or "synthesize" in p_lower or "draft" in p_lower or "evidence bundle" in p_lower:
+                refs = doc_refs if doc_refs else ["submitted_doc_1"]
+                return json.dumps({
+                    "findings": [
+                        {
+                            "id": "f1",
+                            "title": "Analysis of submitted documents",
+                            "detail": "Extracted key findings and verified information directly from user-submitted documentation.",
+                            "evidence_refs": refs[:2]
+                        }
+                    ],
+                    "condition_summary": "Investigation completed on submitted documents"
+                })
+
         if fmt == "json" or task_type in ("classification", "planning") or "sub_tasks" in p_lower:
             return json.dumps({
                 "is_in_scope": True,

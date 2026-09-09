@@ -23,17 +23,25 @@ def extract_text(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
     Returns:
         List of pages: [{page: int, text: str, metadata: {...}}]
     """
+    TEXT_SUFFIXES = {
+        ".txt", ".text", ".md", ".csv", ".json", ".log",
+        ".tsv", ".yaml", ".yml", ".py", ".sql", ".ini", ".conf",
+    }
+
     suffix = Path(filename).suffix.lower()
 
     if suffix == ".pdf":
         return _extract_pdf(file_content)
     elif suffix == ".docx":
         return _extract_docx(file_content)
-    elif suffix in (".txt", ".text", ".md"):
+    elif suffix in TEXT_SUFFIXES:
         return _extract_text(file_content, filename)
     else:
-        # Unsupported format — return empty
-        return []
+        # Fallback: attempt to decode as text before giving up
+        try:
+            return _extract_text(file_content, filename)
+        except Exception:
+            return []
 
 
 def _extract_pdf(file_content: bytes) -> List[Dict[str, Any]]:

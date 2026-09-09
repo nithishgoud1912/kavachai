@@ -47,6 +47,8 @@ async def init_db():
             inv_cols = [row[1] for row in res_inv.fetchall()]
             if "events" not in inv_cols:
                 sync_conn.execute(text("ALTER TABLE investigations ADD COLUMN events JSON DEFAULT '[]'"))
+            if "attachments" not in inv_cols:
+                sync_conn.execute(text("ALTER TABLE investigations ADD COLUMN attachments JSON DEFAULT '[]'"))
 
         await conn.run_sync(_migrate_columns)
 

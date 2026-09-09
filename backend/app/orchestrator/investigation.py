@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.base import (
     AgentName, AgentStatus, CorpusSummary,
     EvidenceBundle, EvidenceItem, DocumentChunk,
-    AgentUpdateEvent,
+    AgentUpdateEvent, SubTask, SpecChunk,
 )
 from app.agents import planner as planner_agent
 from app.agents import document_agent
@@ -47,6 +47,11 @@ class InvestigationRunner:
         self.events: list[dict] = []
         self._start_time = time.time()
         self.agents_invoked: list[str] = []
+        self.attachments = getattr(self.investigation, "attachments", []) or []
+        self.attachment_source_ids = [
+            a.get("source_id") for a in self.attachments
+            if isinstance(a, dict) and a.get("source_id")
+        ]
 
     def _elapsed_ms(self) -> int:
         return int((time.time() - self._start_time) * 1000)
@@ -70,11 +75,27 @@ class InvestigationRunner:
         """
         try:
             # --- 1. PLANNER (FR-PLN-1..3) ---
-            self._emit("planner", "working", "Analyzing query...")
+            if self.attachments:
+                self._emit("planner", "working", f"Analyzing query and {len(self.attachments)} attached files/folders...")
+            else:
+                self._emit("planner", "working", "Analyzing query...")
             self.agents_invoked.append("planner")
 
             corpus_summary = await self._get_corpus_summary()
-            plan = await planner_agent.plan(self.investigation.query, corpus_summary)
+            plan = await planner_agent.plan(
+                self.investigation.query,
+                corpus_summary,
+                attached_files=self.attachments,
+            )
+
+            # If user submitted attachments, guarantee in-scope status
+            if self.attachments:
+                plan.is_in_scope = True
+                if not plan.sub_tasks:
+                    plan.sub_tasks = [
+                        SubTask(agent=AgentName.DOCUMENT_AGENT, goal=f"Analyze uploaded files for: {self.investigation.query}"),
+                        SubTask(agent=AgentName.RAG_AGENT, goal=f"Find relevant specifications and limits in uploaded files"),
+                    ]
 
             # Store plan
             self.investigation.plan = {
@@ -112,6 +133,8 @@ class InvestigationRunner:
                 parallel_tasks.append(self._run_data_agent(data_tasks, evidence_bundle, evidence_items))
             if vision_tasks:
                 parallel_tasks.append(self._run_vision_agent(vision_tasks, evidence_bundle, evidence_items))
+            elif self._extract_equipment_ids() and corpus_summary.pid_drawings > 0 and not self.attachments:
+                parallel_tasks.append(self._run_vision_agent([SubTask(agent=AgentName.VISION_AGENT, goal=f"Identify {self._extract_equipment_ids()[0]} in P&ID")], evidence_bundle, evidence_items))
 
             if parallel_tasks:
                 await asyncio.gather(*parallel_tasks, return_exceptions=True)
@@ -158,6 +181,8 @@ class InvestigationRunner:
             if evidence_bundle.vision_findings and evidence_bundle.vision_findings.found:
                 # Extract equipment_id from query context
                 pid_chain = await self._get_pid_chain()
+            elif self._extract_equipment_ids() and corpus_summary.pid_drawings > 0:
+                pid_chain = await self._get_pid_chain()
 
             report = build_report(
                 investigation_id=self.investigation.id,
@@ -193,20 +218,45 @@ class InvestigationRunner:
             self.agents_invoked.append("document_agent")
 
             all_chunks = []
+            att_map = {
+                a.get("source_id"): (a.get("path") or a.get("filename") or "Uploaded Document")
+                for a in self.attachments if isinstance(a, dict) and a.get("source_id")
+            }
+
             for task in tasks:
+                # Retrieve with equipment and source_id filters
+                filters = {"equipment_ids": self._extract_equipment_ids()}
+                if self.attachment_source_ids:
+                    filters["source_ids"] = self.attachment_source_ids
+
                 chunks = await document_agent.retrieve(
                     sub_task_goal=task.goal,
-                    filters={"equipment_ids": self._extract_equipment_ids()},
+                    filters=filters,
+                    n_results=6,
                 )
                 all_chunks.extend(chunks)
+
+                # If attachments exist, also retrieve directly from the uploaded files
+                if self.attachment_source_ids:
+                    att_chunks = await document_agent.retrieve(
+                        sub_task_goal=task.goal,
+                        filters={"source_ids": self.attachment_source_ids},
+                        n_results=6,
+                    )
+                    seen_chunks = {c.chunk_text for c in all_chunks}
+                    for ac in att_chunks:
+                        if ac.chunk_text not in seen_chunks:
+                            all_chunks.append(ac)
+                            seen_chunks.add(ac.chunk_text)
 
             bundle.document_findings = all_chunks
 
             for chunk in all_chunks:
+                label = att_map.get(chunk.source_id, "Document")
                 evidence_items.append(EvidenceItem(
                     type="document",
                     source_id=chunk.source_id,
-                    label="Document",
+                    label=label,
                     page=chunk.page,
                 ))
 
@@ -316,6 +366,11 @@ class InvestigationRunner:
             equip_id = equipment_ids[0] if equipment_ids else "P-102"
 
             all_specs = []
+            att_map = {
+                a.get("source_id"): (a.get("path") or a.get("filename") or "Uploaded Spec")
+                for a in self.attachments if isinstance(a, dict) and a.get("source_id")
+            }
+
             for task in tasks:
                 specs = await rag_agent.retrieve_spec(
                     query=task.goal,
@@ -323,13 +378,29 @@ class InvestigationRunner:
                 )
                 all_specs.extend(specs)
 
+                # Also search attached sources for relevant specifications
+                if self.attachment_source_ids:
+                    att_chunks = await document_agent.retrieve(
+                        sub_task_goal=f"specification threshold limit {task.goal}",
+                        filters={"source_ids": self.attachment_source_ids},
+                        n_results=3,
+                    )
+                    for ac in att_chunks:
+                        all_specs.append(SpecChunk(
+                            chunk_text=ac.chunk_text,
+                            source_id=ac.source_id,
+                            page=ac.page,
+                            section=None,
+                        ))
+
             bundle.spec_findings = all_specs
 
             for spec in all_specs:
+                label = att_map.get(spec.source_id, "Specification")
                 evidence_items.append(EvidenceItem(
                     type="document",
                     source_id=spec.source_id,
-                    label="Specification",
+                    label=label,
                     page=spec.page,
                     section=spec.section,
                 ))
@@ -359,6 +430,9 @@ class InvestigationRunner:
                 Document.document_type == "pid_drawing",
             )
         )).scalar() or 0
+
+        if self.attachments:
+            doc_count += len(self.attachments)
 
         return CorpusSummary(
             documents=doc_count,
