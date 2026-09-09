@@ -60,17 +60,8 @@ venv.bak/
 # Local databases and runtime stores (Do NOT commit local test DBs and vector indices)
 backend/data/chroma/
 backend/data/chat_uploads/
-backend/data/objects/*
-!backend/data/objects/doc_1120/
-!backend/data/objects/doc_1121/
-!backend/data/objects/doc_1122/
-!backend/data/objects/doc_1130/
-!backend/data/objects/doc_1140/
-!backend/data/objects/doc_f13c1f2e/
-!backend/data/objects/doc_pfd01/
-!backend/data/objects/doc_sop01/
-!backend/data/objects/ds_4471/
-!backend/data/objects/pid_101/
+backend/data/objects/
+backend/data/exports/
 backend/data/*.db
 backend/data/*.db-shm
 backend/data/*.db-wal
