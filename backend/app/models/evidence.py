@@ -21,3 +21,6 @@ class EvidenceResponse(BaseModel):
     # For P&ID evidence
     highlighted_component: Optional[str] = None
     connections: Optional[List[str]] = None
+    visual_description: Optional[str] = None
+    bounding_box: Optional[List[int]] = None
+

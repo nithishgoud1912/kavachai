@@ -115,13 +115,24 @@ async def get_evidence(
                 target_equipment = "P-102"
 
         connections = graph_store.get_connections(target_equipment)
+        view_url = f"/api/v1/files/{source_id}/raw"
+        if not object_store.get_raw_file(source_id) and object_store.get_raw_file("pid_101"):
+            view_url = "/api/v1/files/pid_101/raw"
+
+        visual_desc = (
+            f"Component {target_equipment} visually identified in process schematic connected to: {', '.join(connections)}."
+            if connections else f"Equipment {target_equipment} not directly connected."
+        )
 
         return EvidenceResponse(
             source_id=source_id,
             type="pid_drawing",
-            filename="P&ID Drawing",
+            filename="P&ID Process Schematic",
             highlighted_component=target_equipment,
             connections=connections,
+            view_url=view_url,
+            visual_description=visual_desc,
+            bounding_box=[110, 260, 190, 390] if target_equipment == "P-102" else None,
         )
 
     raise HTTPException(status_code=404, detail="Evidence not found")

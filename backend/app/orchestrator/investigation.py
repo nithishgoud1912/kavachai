@@ -29,7 +29,7 @@ from app.agents import rag_agent
 from app.agents import synthesis as synthesis_agent
 from app.agents import verification as verification_agent
 from app.services.report_service import build_report
-from app.db.sql_models import Investigation, Dataset
+from app.db.sql_models import Investigation, Dataset, Document
 from app.config import settings
 
 from sqlalchemy import select
@@ -94,6 +94,8 @@ class InvestigationRunner:
                 if not plan.sub_tasks:
                     plan.sub_tasks = [
                         SubTask(agent=AgentName.DOCUMENT_AGENT, goal=f"Analyze uploaded files for: {self.investigation.query}"),
+                        SubTask(agent=AgentName.DATA_AGENT, goal=f"Analyze operational telemetry and sensor trends"),
+                        SubTask(agent=AgentName.VISION_AGENT, goal=f"Visually inspect P&ID process flow and schematics in uploaded files"),
                         SubTask(agent=AgentName.RAG_AGENT, goal=f"Find relevant specifications and limits in uploaded files"),
                     ]
 
@@ -129,12 +131,29 @@ class InvestigationRunner:
 
             if doc_tasks:
                 parallel_tasks.append(self._run_document_agent(doc_tasks, evidence_bundle, evidence_items))
+            else:
+                self._emit("document_agent", "skipped", "No document retrieval required")
+
             if data_tasks:
                 parallel_tasks.append(self._run_data_agent(data_tasks, evidence_bundle, evidence_items))
+            elif self._extract_equipment_ids() or corpus_summary.datasets > 0:
+                equip = self._extract_equipment_ids()[0] if self._extract_equipment_ids() else "P-102"
+                parallel_tasks.append(self._run_data_agent([SubTask(agent=AgentName.DATA_AGENT, goal=f"Analyze operating telemetry for {equip}")], evidence_bundle, evidence_items))
+            else:
+                self._emit("data_agent", "skipped", "No operational dataset required")
+
+            has_visual_source = bool(
+                self.attachments or
+                corpus_summary.pid_drawings > 0 or
+                self._extract_equipment_ids()
+            )
             if vision_tasks:
                 parallel_tasks.append(self._run_vision_agent(vision_tasks, evidence_bundle, evidence_items))
-            elif self._extract_equipment_ids() and corpus_summary.pid_drawings > 0 and not self.attachments:
-                parallel_tasks.append(self._run_vision_agent([SubTask(agent=AgentName.VISION_AGENT, goal=f"Identify {self._extract_equipment_ids()[0]} in P&ID")], evidence_bundle, evidence_items))
+            elif has_visual_source:
+                equip = self._extract_equipment_ids()[0] if self._extract_equipment_ids() else "P-102"
+                parallel_tasks.append(self._run_vision_agent([SubTask(agent=AgentName.VISION_AGENT, goal=f"Visually inspect {equip} in P&ID schematic")], evidence_bundle, evidence_items))
+            else:
+                self._emit("vision_agent", "skipped", "No drawings or visual assets available")
 
             if parallel_tasks:
                 await asyncio.gather(*parallel_tasks, return_exceptions=True)
@@ -142,6 +161,11 @@ class InvestigationRunner:
             # RAG runs after (or alongside — it's independent)
             if rag_tasks:
                 await self._run_rag_agent(rag_tasks, evidence_bundle, evidence_items)
+            elif self._extract_equipment_ids():
+                equip = self._extract_equipment_ids()[0]
+                await self._run_rag_agent([SubTask(agent=AgentName.RAG_AGENT, goal=f"Retrieve specifications for {equip}")], evidence_bundle, evidence_items)
+            else:
+                self._emit("rag_agent", "skipped", "No specification retrieval required")
 
             evidence_bundle.evidence_items = evidence_items
 
@@ -179,10 +203,9 @@ class InvestigationRunner:
             # Get P&ID chain if vision was used
             pid_chain = None
             if evidence_bundle.vision_findings and evidence_bundle.vision_findings.found:
-                # Extract equipment_id from query context
-                pid_chain = await self._get_pid_chain()
+                pid_chain = await self._get_pid_chain(evidence_bundle)
             elif self._extract_equipment_ids() and corpus_summary.pid_drawings > 0:
-                pid_chain = await self._get_pid_chain()
+                pid_chain = await self._get_pid_chain(evidence_bundle)
 
             report = build_report(
                 investigation_id=self.investigation.id,
@@ -323,16 +346,37 @@ class InvestigationRunner:
             self._emit("data_agent", "failed", f"Data analysis failed: {str(e)[:100]}")
 
     async def _run_vision_agent(self, tasks, bundle, evidence_items):
-        """Run vision agent sub-tasks. Implements: FR-VIS-1..3"""
+        """Run vision agent sub-tasks with Qwen2.5-VL. Implements: FR-VIS-1..3"""
         try:
-            self._emit("vision_agent", "working", "Analyzing P&ID...")
+            self._emit("vision_agent", "working", "Analyzing P&ID schematic with Qwen2.5-VL...")
             self.agents_invoked.append("vision_agent")
 
             equipment_ids = self._extract_equipment_ids()
             equip_id = equipment_ids[0] if equipment_ids else "P-102"
 
+            # Dynamically resolve P&ID source ID from attachments or DB
+            pid_source_id = "pid_101"
+            if self.attachment_source_ids:
+                for sid in self.attachment_source_ids:
+                    att = next((a for a in self.attachments if isinstance(a, dict) and a.get("source_id") == sid), None)
+                    fn = (att.get("filename") or "").lower() if att else ""
+                    if any(fn.endswith(ext) for ext in [".pdf", ".png", ".jpg", ".jpeg", ".webp"]):
+                        pid_source_id = sid
+                        break
+
+            if pid_source_id == "pid_101":
+                doc_query = await self.db.execute(
+                    select(Document).where(
+                        Document.status == "ready",
+                        Document.document_type == "pid_drawing",
+                    ).limit(1)
+                )
+                pid_doc = doc_query.scalar_one_or_none()
+                if pid_doc:
+                    pid_source_id = pid_doc.source_id
+
             result = await vision_agent.analyze_pid(
-                pid_source_id="pid_demo",  # Pre-computed fallback
+                pid_source_id=pid_source_id,
                 equipment_id=equip_id,
             )
 
@@ -340,11 +384,12 @@ class InvestigationRunner:
                 bundle.vision_findings = result
                 evidence_items.append(EvidenceItem(
                     type="pid_drawing",
-                    source_id="pid_demo",
-                    label="P&ID Drawing",
+                    source_id=pid_source_id,
+                    label="P&ID Process Schematic",
+                    detail=result.visual_description,
                 ))
                 self._emit("vision_agent", "complete",
-                           f"Found {equip_id}, connected to: {', '.join(result.connections)}")
+                           f"Identified {equip_id} via Qwen2.5-VL: connected to {', '.join(result.connections)}")
             else:
                 # FR-VIS-3: Graceful degradation
                 self._emit("vision_agent", "skipped",
@@ -446,12 +491,16 @@ class InvestigationRunner:
         pattern = re.compile(r"\b([A-Z]-\d{2,4})\b")
         return pattern.findall(self.investigation.query)
 
-    async def _get_pid_chain(self) -> Optional[list[str]]:
+    async def _get_pid_chain(self, bundle: Optional[EvidenceBundle] = None) -> Optional[list[str]]:
         """Get the P&ID connection chain for the primary equipment."""
+        if bundle and bundle.vision_findings and bundle.vision_findings.found:
+            seq = getattr(bundle.vision_findings, "process_sequence", None)
+            if seq and len(seq) >= 3:
+                return seq
+
         equipment_ids = self._extract_equipment_ids()
-        if equipment_ids:
-            return await vision_agent.get_connection_chain(equipment_ids[0])
-        return None
+        equip_id = equipment_ids[0] if equipment_ids else "P-102"
+        return await vision_agent.get_connection_chain(equip_id)
 
     async def _insufficient_evidence(self, message: str) -> dict:
         """Handle the insufficient_evidence terminal state."""

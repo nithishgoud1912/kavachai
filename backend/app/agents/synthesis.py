@@ -146,9 +146,13 @@ def _format_evidence_bundle(bundle: EvidenceBundle) -> str:
 
     if bundle.vision_findings and bundle.vision_findings.found:
         vf = bundle.vision_findings
-        parts.append("P&ID ANALYSIS:")
+        parts.append("P&ID & VISUAL ANALYSIS:")
         parts.append(f"  - Equipment found: yes (confidence: {vf.confidence})")
-        parts.append(f"  - Connected equipment: {', '.join(vf.connections)}")
+        parts.append(f"  - Directly connected equipment: {', '.join(vf.connections)}")
+        if getattr(vf, "process_sequence", None):
+            parts.append(f"  - Full Process Sequence: {' -> '.join(vf.process_sequence)}")
+        if getattr(vf, "visual_description", None):
+            parts.append(f"  - Visual Inspection Observations: {vf.visual_description}")
 
     if bundle.spec_findings:
         parts.append("SPECIFICATION/THRESHOLD EVIDENCE:")

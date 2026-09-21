@@ -81,6 +81,10 @@ class VisionAnalysisResult(BaseModel):
     found: bool
     connections: List[str] = Field(default_factory=list)
     confidence: float = 0.0
+    bounding_box: Optional[List[int]] = None  # [ymin, xmin, ymax, xmax] normalized 0-1000
+    visual_description: Optional[str] = None
+    process_sequence: List[str] = Field(default_factory=list)
+    detected_symbols: List[str] = Field(default_factory=list)
 
 
 # --- RAG Agent Types (§8.5) ---

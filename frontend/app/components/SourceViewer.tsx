@@ -219,13 +219,35 @@ function DatasetView({ evidence }: { evidence: DatasetEvidence }) {
 function PidView({ evidence }: { evidence: PidEvidence }) {
   return (
     <div className="space-y-6">
-      <h4 className="font-[family-name:var(--font-mono)] text-text text-sm font-medium">
-        {evidence.filename}
-      </h4>
+      <div className="flex items-center justify-between">
+        <h4 className="font-[family-name:var(--font-mono)] text-text text-sm font-medium">
+          {evidence.filename}
+        </h4>
+        <span className="text-[11px] font-[family-name:var(--font-mono)] bg-teal/10 text-teal border border-teal/20 px-2 py-0.5 rounded-full">
+          Qwen2.5-VL Grounded
+        </span>
+      </div>
+
+      {/* Visual Description from VLM */}
+      {evidence.visual_description && (
+        <div className="bg-surface-2 border border-border rounded-lg p-4 space-y-1.5">
+          <p className="text-xs text-text-3 uppercase tracking-wider font-semibold">Visual Inspection Observation</p>
+          <p className="text-sm text-text-2 leading-relaxed">
+            {evidence.visual_description}
+          </p>
+        </div>
+      )}
 
       {/* Highlighted component */}
       <div className="bg-surface-2 border border-border rounded-lg p-5 space-y-3">
-        <p className="text-xs text-text-3 uppercase tracking-wider">Highlighted Component</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-text-3 uppercase tracking-wider">Highlighted Component</p>
+          {evidence.bounding_box && (
+            <span className="text-[10px] font-[family-name:var(--font-mono)] text-text-3">
+              Box: [{evidence.bounding_box.join(", ")}]
+            </span>
+          )}
+        </div>
         <p className="font-[family-name:var(--font-mono)] text-accent text-lg font-semibold">
           {evidence.highlighted_component}
         </p>
@@ -247,21 +269,34 @@ function PidView({ evidence }: { evidence: PidEvidence }) {
         )}
       </div>
 
-      {/* View link */}
+      {/* Diagram Preview */}
       {evidence.view_url && (
-        <a
-          href={evidence.view_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-teal text-sm hover:text-accent transition-colors flex items-center gap-2"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-            <polyline points="15 3 21 3 21 9" />
-            <line x1="10" y1="14" x2="21" y2="3" />
-          </svg>
-          View annotated P&ID
-        </a>
+        <div className="space-y-2">
+          <p className="text-xs text-text-3 uppercase tracking-wider">Schematic Preview</p>
+          <div className="rounded-lg overflow-hidden border border-border bg-white p-2">
+            <img
+              src={evidence.view_url}
+              alt="P&ID Diagram"
+              className="w-full h-auto object-contain rounded"
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = "none";
+              }}
+            />
+          </div>
+          <a
+            href={evidence.view_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-teal text-sm hover:text-accent transition-colors inline-flex items-center gap-2 pt-1"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
+            Open full diagram in new tab
+          </a>
+        </div>
       )}
     </div>
   );

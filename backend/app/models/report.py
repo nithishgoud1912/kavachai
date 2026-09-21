@@ -31,6 +31,11 @@ class InvestigationReport(BaseModel):
     condition_summary: str
     findings: List[Finding]
     pid_relationship: Optional[List[str]] = None
+    vision_observation: Optional[str] = None
+    bounding_box: Optional[List[int]] = None
+    telemetry_trend: Optional[List[dict]] = None
+    process_topology: Optional[List[dict]] = None
+    bypass_loops: Optional[List[dict]] = None
     conclusion: str
     confidence: int  # 0-100
     verification_status: str  # "verified", "partially_verified", "unverified"
