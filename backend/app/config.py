@@ -47,6 +47,9 @@ class Settings(BaseSettings):
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
+        # The repository-level Compose environment also defines frontend/backend
+        # port variables. They are intentionally not backend Settings fields.
+        "extra": "ignore",
     }
 
 

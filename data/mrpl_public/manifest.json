@@ -1,0 +1,19 @@
+{
+  "corpus": "MRPL public reference corpus",
+  "purpose": "Public organisation and governance context only. This is not a substitute for confidential MRPL operational documents.",
+  "documents": [
+    {
+      "source_id": "mrpl_annual_report_2024_25",
+      "filename": "MRPL_Annual_Report_2024_25.pdf",
+      "document_type": "annual_report",
+      "organization": "MRPL",
+      "department_scope": "public_corporate",
+      "classification": "public",
+      "authority": "statutory_public_filing",
+      "published_at": "2025-07-28",
+      "source_url": "https://nsearchives.nseindia.com/annual_reports/AR_27132_MRPL_2024_2025_A_28072025171020.pdf",
+      "sha256": "479525d054d3a53b9513e577b98a12d99169f2cb2bc78e44f371cff273f98aae",
+      "equipment_ids": []
+    }
+  ]
+}
