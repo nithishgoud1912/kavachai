@@ -9,12 +9,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db.database import init_db
+from app.middleware.egress_monitor import egress_monitor
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown lifecycle — initialize DB on start."""
+    """Startup/shutdown lifecycle — initialize DB, egress audit on start."""
+    # 1. Existing DB init preserved
     await init_db()
+
+    # 2. Egress monitor — sovereignty proof via socket audit
+    egress_monitor.install_socket_audit()
+
+    # TODO: LangGraph checkpointer init goes here (Phase 3)
+    # async with init_checkpointer() as checkpointer:
+    #     app.state.investigation_graph = build_investigation_graph(checkpointer)
+    #     app.state.approval_graph = build_approval_graph(checkpointer)
+    #     app.state.chat_graph = build_chat_graph(checkpointer)
+
     yield
 
 

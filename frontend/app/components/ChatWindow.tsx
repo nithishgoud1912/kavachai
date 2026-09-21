@@ -456,7 +456,7 @@ export default function ChatWindow({
       ) : messages.length === 0 && !sending ? (
         <div className="chat-empty">
           <div className="chat-empty-icon" style={{ fontSize: "2.5rem" }}>
-            {type === "report" ? "📋" : "🛡️"}
+            {type === "report" ? "📋" : "  "}
           </div>
           <div>
             <h3
