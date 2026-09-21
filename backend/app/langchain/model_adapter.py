@@ -1,5 +1,5 @@
 """
-KavachAI — KavachLLM LangChain Adapter (Person A — Exclusive File)
+KavachAI — KavachLLM LangChain Adapter
 
 BaseChatModel implementation that routes all LLM calls through ModelRouter
 to enforce sovereignty (NFR-SEC-1) and model-swap flexibility (NFR-MNT-2).
@@ -12,12 +12,20 @@ Key design decisions:
 - Factory functions get_reasoning_llm() and get_coding_llm() for easy instantiation
 """
 
-from typing import Any, List, Optional
+import asyncio
+import concurrent.futures
+from typing import Any, Dict, List, Optional
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
-    BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
+    BaseMessage,
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
 )
 from langchain_core.outputs import ChatResult, ChatGeneration
+from pydantic import PrivateAttr
 
 # Map LangChain message types to Ollama role strings
 ROLE_MAP = {
@@ -32,22 +40,22 @@ ROLE_MAP = {
 
 class KavachLLM(BaseChatModel):
     """
-    LangChain-compatible LLM that routes through KavachAI's local ModelRouter.
-    Supports native Ollama tool-calling with proper tool_name mapping.
+    Sovereign local LLM adapter for LangChain / LangGraph integration.
+    Dispatches to ModelRouter with support for native Ollama tool-calling.
     """
     task_type: str = "text_reasoning"
-    _tools: list = []
+    _tools: list = PrivateAttr(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
         return "kavach-local-ollama"
 
     def _convert_messages(self, messages: List[BaseMessage]) -> List[dict]:
-        """Convert LangChain messages to Ollama-compatible format."""
+        """Convert LangChain messages to Ollama chat message dictionaries."""
         result = []
         for m in messages:
             role = ROLE_MAP.get(m.type, "user")
-            msg = {"role": role, "content": str(m.content)}
+            msg: Dict[str, Any] = {"role": role, "content": str(m.content)}
 
             # AIMessage with tool_calls — forward function call metadata
             if hasattr(m, "tool_calls") and m.tool_calls:
@@ -66,14 +74,35 @@ class KavachLLM(BaseChatModel):
             result.append(msg)
         return result
 
-    def _convert_tool_schema(self, lc_tool) -> dict:
-        """Convert a LangChain tool to Ollama function-calling schema."""
-        schema = lc_tool.args_schema.schema() if hasattr(lc_tool, 'args_schema') else {}
+    def _convert_tool_schema(self, lc_tool: Any) -> dict:
+        """Convert LangChain BaseTool or schema dictionary to Ollama function tool format."""
+        # Handle raw dict schemas (already in Ollama format or partial)
+        if isinstance(lc_tool, dict):
+            if "type" in lc_tool and "function" in lc_tool:
+                return lc_tool
+            return {
+                "type": "function",
+                "function": {
+                    "name": lc_tool.get("name", "tool"),
+                    "description": lc_tool.get("description", ""),
+                    "parameters": lc_tool.get("parameters", {"type": "object", "properties": {}}),
+                },
+            }
+
+        # Handle LangChain BaseTool instances
+        args_schema = getattr(lc_tool, "args_schema", None)
+        schema: Dict[str, Any] = {}
+        if args_schema:
+            if hasattr(args_schema, "model_json_schema"):
+                schema = args_schema.model_json_schema()
+            elif hasattr(args_schema, "schema"):
+                schema = args_schema.schema()
+
         return {
             "type": "function",
             "function": {
-                "name": lc_tool.name,
-                "description": lc_tool.description or "",
+                "name": getattr(lc_tool, "name", str(lc_tool)),
+                "description": getattr(lc_tool, "description", "") or "",
                 "parameters": {
                     "type": "object",
                     "properties": schema.get("properties", {}),
@@ -84,7 +113,7 @@ class KavachLLM(BaseChatModel):
 
     def bind_tools(self, tools: list, **kwargs) -> "KavachLLM":
         """
-        Return a new KavachLLM instance with tool schemas bound.
+        Bind tool definitions to the LLM and return a new isolated instance.
         Immutable pattern — the original instance is not mutated.
         """
         bound = KavachLLM(task_type=self.task_type)
@@ -95,7 +124,7 @@ class KavachLLM(BaseChatModel):
         self,
         messages: List[BaseMessage],
         stop: Optional[List[str]] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> ChatResult:
         """
         Async generation — the primary code path.
@@ -103,6 +132,7 @@ class KavachLLM(BaseChatModel):
         otherwise falls back to plain generate_chat().
         """
         from app.orchestrator.model_router import model_router
+
         ollama_messages = self._convert_messages(messages)
 
         if self._tools:
@@ -131,10 +161,7 @@ class KavachLLM(BaseChatModel):
         else:
             # Plain text path — uses existing generate_chat() -> str
             text = await model_router.generate_chat(
-                messages=[
-                    {"role": m["role"], "content": m["content"]}
-                    for m in ollama_messages
-                ],
+                messages=[{"role": m["role"], "content": m["content"]} for m in ollama_messages],
                 task_type=self.task_type,
                 temperature=kwargs.get("temperature", 0.1),
                 max_tokens=kwargs.get("max_tokens", 2048),
@@ -147,20 +174,28 @@ class KavachLLM(BaseChatModel):
         self,
         messages: List[BaseMessage],
         stop: Optional[List[str]] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> ChatResult:
-        """Sync wrapper — runs the async path in an event loop."""
-        import asyncio
-        return asyncio.run(self._agenerate(messages, stop=stop, **kwargs))
+        """Synchronous wrapper for _agenerate. Handles running event loops safely."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
 
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(
+                    asyncio.run, self._agenerate(messages, stop=stop, **kwargs)
+                ).result()
+        else:
+            return asyncio.run(self._agenerate(messages, stop=stop, **kwargs))
 
-# --- Factory Functions ---
 
 def get_reasoning_llm() -> KavachLLM:
-    """Get a KavachLLM configured for text reasoning tasks (synthesis, planning, verification)."""
+    """Factory for reasoning tasks (synthesis, planning, verification)."""
     return KavachLLM(task_type="text_reasoning")
 
 
 def get_coding_llm() -> KavachLLM:
-    """Get a KavachLLM configured for code generation tasks."""
+    """Factory for coding / structured tool invocation tasks."""
     return KavachLLM(task_type="coding")

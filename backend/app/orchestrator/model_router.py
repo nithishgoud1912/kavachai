@@ -42,6 +42,7 @@ class ModelRouter:
             "classification": settings.LLM_MODEL,    # Same model for classification (scope check)
             "embedding": settings.EMBEDDING_MODEL,    # nomic-embed-text
             "vision": settings.VISION_MODEL,         # Qwen 2.5-VL — visual P&ID & photo reasoning
+            "coding": settings.LLM_MODEL,            # Qwen 2.5 3B — coding / tool invocation
         }
 
     async def is_ollama_available(self) -> bool:
@@ -203,7 +204,7 @@ class ModelRouter:
 
         if not await self.is_ollama_available():
             # Fallback: return text-only response without tool_calls
-            last_msg = messages[-1]["content"] if messages else ""
+            last_msg = messages[-1].get("content", "") if messages else ""
             return {
                 "content": self._offline_generate(last_msg, task_type, None),
                 "tool_calls": None,
@@ -213,10 +214,7 @@ class ModelRouter:
             "model": model,
             "messages": messages,
             "stream": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_tokens,
-            },
+            "options": {"temperature": temperature, "num_predict": max_tokens},
             "tools": tools,
         }
 
@@ -230,7 +228,7 @@ class ModelRouter:
                 "tool_calls": msg.get("tool_calls"),
             }
         except Exception:
-            last_msg = messages[-1]["content"] if messages else ""
+            last_msg = messages[-1].get("content", "") if messages else ""
             return {
                 "content": self._offline_generate(last_msg, task_type, None),
                 "tool_calls": None,

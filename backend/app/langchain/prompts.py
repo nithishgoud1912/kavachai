@@ -1,5 +1,5 @@
 """
-KavachAI — Agent System Prompts (Person A — Exclusive File)
+KavachAI — Agent System Prompts
 
 Centralized prompt templates for different agent personas and workflows.
 These are used by LangGraph graph nodes and the ReAct chat agent.

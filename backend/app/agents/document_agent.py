@@ -93,9 +93,10 @@ async def retrieve(
 def _build_where_filter(filters: Dict[str, Any]) -> Optional[Dict]:
     """
     Build a ChromaDB where filter from agent filters.
-    Supports: document_types, department_scope
+    Supports: document_types, department_scope, source_ids, session_id
     Note: equipment_ids is matched in python post-retrieval because ChromaDB does
     not support substring $contains on metadata fields.
+    Task 3.3: session_id filter includes session docs + shared corpus docs.
     """
     conditions = []
 
@@ -113,6 +114,12 @@ def _build_where_filter(filters: Dict[str, Any]) -> Optional[Dict]:
             conditions.append({"source_id": filters["source_ids"][0]})
         else:
             conditions.append({"source_id": {"$in": filters["source_ids"]}})
+
+    # Task 3.3: session_id filter — include session docs AND shared/corpus docs
+    if "session_id" in filters and filters["session_id"]:
+        conditions.append({
+            "session_id": {"$in": [filters["session_id"], "", "shared", "corpus"]}
+        })
 
     if not conditions:
         return None

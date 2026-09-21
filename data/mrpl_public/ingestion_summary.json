@@ -1,0 +1,24 @@
+{
+  "corpus": "MRPL public reference corpus",
+  "classification": "public",
+  "embedding_model": "nomic-embed-text",
+  "chunking": {
+    "size_characters": 1800,
+    "overlap_characters": 250
+  },
+  "generated_at": "2026-09-21T08:16:29.065568+00:00",
+  "documents": [
+    {
+      "source_id": "mrpl_annual_report_2024_25",
+      "filename": "MRPL_Annual_Report_2024_25.pdf",
+      "document_type": "annual_report",
+      "pages": 382,
+      "chunks": 859,
+      "sha256": "479525d054d3a53b9513e577b98a12d99169f2cb2bc78e44f371cff273f98aae",
+      "source_url": "https://nsearchives.nseindia.com/annual_reports/AR_27132_MRPL_2024_2025_A_28072025171020.pdf"
+    }
+  ],
+  "document_count": 1,
+  "chunk_count": 859,
+  "vector_dimension": 768
+}
