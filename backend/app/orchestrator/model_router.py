@@ -42,6 +42,7 @@ class ModelRouter:
             "classification": settings.LLM_MODEL,    # Same model for classification (scope check)
             "embedding": settings.EMBEDDING_MODEL,    # nomic-embed-text
             "vision": settings.VISION_MODEL,         # Qwen 2.5-VL — visual P&ID & photo reasoning
+            "coding": settings.LLM_MODEL,            # Qwen 2.5 3B — coding / tool invocation
         }
 
     async def is_ollama_available(self) -> bool:
@@ -172,6 +173,53 @@ class ModelRouter:
         except Exception as e:
             last_msg = messages[-1]["content"] if messages else ""
             return self._offline_generate(last_msg, task_type, format)
+
+    async def generate_chat_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        task_type: str = "text_reasoning",
+        temperature: float = 0.1,
+        max_tokens: int = 2048,
+    ) -> Dict[str, Any]:
+        """
+        Chat generation with native Ollama tool-calling.
+        Returns: {"content": str, "tool_calls": Optional[List[Dict]]}
+        """
+        model = self.get_model(task_type)
+        if model is None:
+            raise RuntimeError(f"No model configured for task_type: {task_type}")
+
+        if not await self.is_ollama_available():
+            last_msg = messages[-1].get("content", "") if messages else ""
+            return {
+                "content": self._offline_generate(last_msg, task_type, None),
+                "tool_calls": None,
+            }
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": temperature, "num_predict": max_tokens},
+            "tools": tools,
+        }
+        try:
+            resp = await self._client.post("/api/chat", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            msg = data.get("message", {})
+            return {
+                "content": msg.get("content", ""),
+                "tool_calls": msg.get("tool_calls"),
+            }
+        except Exception:
+            last_msg = messages[-1].get("content", "") if messages else ""
+            return {
+                "content": self._offline_generate(last_msg, task_type, None),
+                "tool_calls": None,
+            }
+
 
     async def generate_vision(
         self,
