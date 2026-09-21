@@ -42,6 +42,8 @@ class Session(Base):
     # Relationships
     investigations = relationship("Investigation", back_populates="session")
     conversations = relationship("Conversation", back_populates="session")
+    documents = relationship("Document", back_populates="session")  # Task 3.1
+    datasets = relationship("Dataset", back_populates="session")    # Task 3.1
 
 
 # --- FR-ING-1..6: Documents ---
@@ -60,10 +62,15 @@ class Document(Base):
     session_id = Column(String, ForeignKey("sessions.id"), nullable=True)
     ingested_at = Column(DateTime, default=utcnow, nullable=False)
     source_id = Column(String, nullable=False, unique=True)  # maps to object store key
+    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)  # Task 3.1: session ownership
+
+    # Relationships
+    session = relationship("Session", back_populates="documents")  # Task 3.1
 
     __table_args__ = (
         Index("ix_documents_equipment", "equipment_ids"),
         Index("ix_documents_type", "document_type"),
+        Index("ix_documents_session", "session_id"),
     )
 
 
@@ -80,6 +87,14 @@ class Dataset(Base):
     table_name = Column(String, nullable=True)  # name of the SQLite table holding the rows
     session_id = Column(String, ForeignKey("sessions.id"), nullable=True)
     ingested_at = Column(DateTime, default=utcnow, nullable=False)
+    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)  # Task 3.1: session ownership
+
+    # Relationships
+    session = relationship("Session", back_populates="datasets")  # Task 3.1
+
+    __table_args__ = (
+        Index("ix_datasets_session", "session_id"),
+    )
 
 
 # --- FR-RPT-1, FR-PLN-1..3: Investigations ---

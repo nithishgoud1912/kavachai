@@ -21,7 +21,7 @@ def tag_chunks(
     document_type: str,
     equipment_ids: Optional[List[str]] = None,
     department_scope: Optional[str] = None,
-    session_id: Optional[str] = None,
+    session_id: Optional[str] = None,  # Task 3.2: session ownership for ChromaDB filtering
 ) -> List[Dict[str, Any]]:
     """
     Tag each chunk with metadata for retrieval filtering.
@@ -34,6 +34,7 @@ def tag_chunks(
         document_type: inspection_report, maintenance_history, sop, manual, pid_drawing, other
         equipment_ids: explicitly provided equipment IDs (optional, also auto-detected)
         department_scope: for permission-aware retrieval (FR-RAG-2)
+        session_id: session that uploaded this document (Task 3.2, written to ChromaDB metadata)
 
     Returns:
         Chunks with metadata attached (ready for vector store)
@@ -55,7 +56,7 @@ def tag_chunks(
             "document_type": document_type,
             "equipment_ids": ",".join(sorted(all_ids)) if all_ids else "",  # CSV string for Chroma
             "department_scope": department_scope or "",
-            "session_id": session_id or "",
+            "session_id": session_id or "",  # Task 3.2: empty string for shared/corpus docs
         }
 
         tagged_chunks.append({

@@ -1,8 +1,12 @@
 """
-LangChain @tool definitions for KavachAI agents.
-All tools receive session_id via RunnableConfig for data isolation.
-Person B owns this file exclusively.
+KavachAI — LangChain Tool Definitions
+Task 3.4: Session-aware tools for document retrieval and operational data analysis.
+
+Tools:
+    search_local_documents   — ChromaDB vector search filtered by session_id
+    analyze_operational_data — Deterministic pandas analysis on session-owned datasets
 """
+
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy import select, or_
@@ -13,7 +17,18 @@ from app.agents import document_agent, data_agent
 
 @tool("search_local_documents")
 async def search_local_documents(query: str, config: RunnableConfig) -> str:
-    """Search organization knowledge base filtered by session."""
+    """Search organization knowledge base filtered by session.
+
+    Uses vector similarity search against the ChromaDB store. Only documents
+    belonging to the current session or the shared corpus are returned.
+
+    Args:
+        query: Natural-language search query.
+        config: LangChain RunnableConfig carrying `configurable.session_id`.
+
+    Returns:
+        Formatted string of matching document chunks with source citations.
+    """
     session_id = config.get("configurable", {}).get("session_id")
     chunks = await document_agent.retrieve(
         sub_task_goal=query,
@@ -22,29 +37,56 @@ async def search_local_documents(query: str, config: RunnableConfig) -> str:
     )
     if not chunks:
         return "No relevant documents found in knowledge base."
-    return "\n\n".join(f"[{c.source_id} p.{c.page}]: {c.chunk_text[:300]}" for c in chunks)
+    return "\n\n".join(
+        f"[{c.source_id} p.{c.page}]: {c.chunk_text[:300]}" for c in chunks
+    )
 
 
 @tool("analyze_operational_data")
 async def analyze_operational_data(
     metric: str, equipment_id: str, dataset_id: str, config: RunnableConfig
 ) -> str:
-    """Run deterministic pandas statistical analysis on a specific dataset."""
+    """Run deterministic pandas statistical analysis on a specific dataset.
+
+    Verifies dataset ownership before analysis — only datasets uploaded in the
+    current session or shared/null datasets are accessible.
+
+    Args:
+        metric:       Metric name to analyse (e.g. "vibration_rms").
+        equipment_id: Equipment tag to filter telemetry rows (e.g. "P-102").
+        dataset_id:   UUID of the dataset record in the SQL database.
+        config:       LangChain RunnableConfig carrying `configurable.session_id`.
+
+    Returns:
+        Plain-text analysis summary with trend, percentage change, and threshold
+        breach status; or an error string on access violation / missing data.
+    """
     session_id = config.get("configurable", {}).get("session_id")
-    # Verify dataset exists and belongs to this session (or is shared)
+
+    # Verify dataset exists and belongs to this session (or is shared/corpus)
     async with async_session() as db:
         query = select(Dataset).where(
             Dataset.id == dataset_id,
-            or_(Dataset.session_id == session_id, Dataset.session_id.is_(None), Dataset.session_id == "")
+            or_(
+                Dataset.session_id == session_id,
+                Dataset.session_id.is_(None),
+                Dataset.session_id == "",
+            ),
         )
         res = await db.execute(query)
         dataset = res.scalar_one_or_none()
         if not dataset:
-            return f"Error: Dataset '{dataset_id}' not found or unauthorized for this session."
+            return (
+                f"Error: Dataset '{dataset_id}' not found or unauthorized for this session."
+            )
 
-    result = data_agent.analyze(metric=metric, equipment_id=equipment_id, dataset_id=dataset_id)
+    result = data_agent.analyze(
+        metric=metric, equipment_id=equipment_id, dataset_id=dataset_id
+    )
     if not result.data_points:
-        return f"No telemetry points found for metric '{metric}' on equipment '{equipment_id}'."
+        return (
+            f"No telemetry points found for metric '{metric}' on equipment '{equipment_id}'."
+        )
     return (
         f"Equipment: {equipment_id}, Metric: {metric}\n"
         f"Trend: {result.trend.value}, Change: {result.pct_change:+.1f}%\n"
@@ -53,4 +95,5 @@ async def analyze_operational_data(
     )
 
 
+# Public export — consumed by LangGraph graph definitions in Phase 3
 ALL_TOOLS = [search_local_documents, analyze_operational_data]
