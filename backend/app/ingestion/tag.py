@@ -21,6 +21,7 @@ def tag_chunks(
     document_type: str,
     equipment_ids: Optional[List[str]] = None,
     department_scope: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Tag each chunk with metadata for retrieval filtering.
@@ -54,6 +55,7 @@ def tag_chunks(
             "document_type": document_type,
             "equipment_ids": ",".join(sorted(all_ids)) if all_ids else "",  # CSV string for Chroma
             "department_scope": department_scope or "",
+            "session_id": session_id or "",
         }
 
         tagged_chunks.append({

@@ -114,6 +114,14 @@ def _build_where_filter(filters: Dict[str, Any]) -> Optional[Dict]:
         else:
             conditions.append({"source_id": {"$in": filters["source_ids"]}})
 
+    # NEW: session_id filtering — include session-specific + shared corpus docs
+    if "session_id" in filters and filters["session_id"]:
+        conditions.append({
+            "session_id": {
+                "$in": [filters["session_id"], "", "shared", "corpus"]
+            }
+        })
+
     if not conditions:
         return None
     elif len(conditions) == 1:

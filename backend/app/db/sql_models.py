@@ -57,6 +57,7 @@ class Document(Base):
     chunks = Column(Integer, default=0)
     equipment_ids = Column(JSON, default=list)  # e.g. ["P-102"]
     department_scope = Column(String, nullable=True)  # FR-RAG-2: permission-aware retrieval
+    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)
     ingested_at = Column(DateTime, default=utcnow, nullable=False)
     source_id = Column(String, nullable=False, unique=True)  # maps to object store key
 
@@ -77,6 +78,7 @@ class Dataset(Base):
     row_count = Column(Integer, default=0)
     status = Column(String, default="processing", nullable=False)  # processing, ready, failed
     table_name = Column(String, nullable=True)  # name of the SQLite table holding the rows
+    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)
     ingested_at = Column(DateTime, default=utcnow, nullable=False)
 
 
