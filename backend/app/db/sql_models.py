@@ -27,6 +27,41 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    """Locally authenticated human user. Password hashes are never returned by APIs."""
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    username = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
+    department = Column(String, nullable=False)
+    clearance = Column(String, nullable=False, default="internal")
+    is_active = Column(Boolean, nullable=False, default=True)
+    mfa_secret = Column(String, nullable=True)
+    mfa_enabled = Column(Boolean, nullable=False, default=False)
+    failed_login_count = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, nullable=False)
+
+    roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
+
+
+class UserRole(Base):
+    """Many-to-one role assignments; role names are constrained in application policy."""
+    __tablename__ = "user_roles"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String, nullable=False)
+    granted_by = Column(String, nullable=True)
+    granted_at = Column(DateTime, default=utcnow, nullable=False)
+
+    user = relationship("User", back_populates="roles")
+
+    __table_args__ = (Index("ix_user_roles_user_role", "user_id", "role", unique=True),)
+
+
 # --- FR-ACC-1/2: Sessions ---
 class Session(Base):
     """Lightweight demo session (FR-ACC-1)."""
@@ -38,12 +73,37 @@ class Session(Base):
     issued_at = Column(DateTime, default=utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=True)
     is_revoked = Column(Boolean, default=False, nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    mfa_verified = Column(Boolean, default=True, nullable=False)
+    auth_method = Column(String, nullable=True)
 
     # Relationships
     investigations = relationship("Investigation", back_populates="session")
     conversations = relationship("Conversation", back_populates="session")
     documents = relationship("Document", back_populates="session")  # Task 3.1
     datasets = relationship("Dataset", back_populates="session")    # Task 3.1
+
+
+class AuditEvent(Base):
+    """Append-only security event. No update/delete helper is intentionally provided."""
+    __tablename__ = "audit_events"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    event_type = Column(String, nullable=False, index=True)
+    outcome = Column(String, nullable=False)
+    actor_user_id = Column(String, nullable=True, index=True)
+    actor_service = Column(String, nullable=True)
+    session_id = Column(String, nullable=True, index=True)
+    department = Column(String, nullable=True)
+    resource_type = Column(String, nullable=True)
+    resource_id = Column(String, nullable=True)
+    classification = Column(String, nullable=True)
+    detail = Column(JSON, default=dict)
+    previous_event_hash = Column(String, nullable=True)
+    event_hash = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False, index=True)
+
+    __table_args__ = (Index("ix_audit_events_resource", "resource_type", "resource_id"),)
 
 
 # --- FR-ING-1..6: Documents ---
@@ -59,10 +119,9 @@ class Document(Base):
     chunks = Column(Integer, default=0)
     equipment_ids = Column(JSON, default=list)  # e.g. ["P-102"]
     department_scope = Column(String, nullable=True)  # FR-RAG-2: permission-aware retrieval
-    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)
+    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)  # Task 3.1: session ownership
     ingested_at = Column(DateTime, default=utcnow, nullable=False)
     source_id = Column(String, nullable=False, unique=True)  # maps to object store key
-    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)  # Task 3.1: session ownership
 
     # Relationships
     session = relationship("Session", back_populates="documents")  # Task 3.1
@@ -85,9 +144,8 @@ class Dataset(Base):
     row_count = Column(Integer, default=0)
     status = Column(String, default="processing", nullable=False)  # processing, ready, failed
     table_name = Column(String, nullable=True)  # name of the SQLite table holding the rows
-    session_id = Column(String, ForeignKey("sessions.id"), nullable=True)
-    ingested_at = Column(DateTime, default=utcnow, nullable=False)
     session_id = Column(String, ForeignKey("sessions.id"), nullable=True)  # Task 3.1: session ownership
+    ingested_at = Column(DateTime, default=utcnow, nullable=False)
 
     # Relationships
     session = relationship("Session", back_populates="datasets")  # Task 3.1

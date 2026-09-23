@@ -234,3 +234,50 @@ def _build_conclusion(
 
     return " ".join(narrative_sections)
 
+
+async def render_briefing_draft(investigation_id: str) -> str:
+    """
+    Render a draft briefing note for an investigation.
+    Used by the HITL approval graph to generate the draft for officer review.
+
+    Args:
+        investigation_id: the investigation to render
+
+    Returns:
+        Plain text draft briefing note content
+    """
+    from app.db.database import async_session
+    from app.db.sql_models import Investigation
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(Investigation).where(Investigation.id == investigation_id)
+        )
+        inv = result.scalar_one_or_none()
+
+    if not inv:
+        return f"Investigation {investigation_id} — Draft Briefing Note\n\nInvestigation data not found."
+
+    # Build the draft from available investigation data
+    sections = []
+    sections.append(f"BRIEFING NOTE — Investigation {investigation_id}")
+    sections.append(f"Query: {inv.query}")
+    sections.append(f"Status: {inv.status}")
+
+    if inv.draft_findings:
+        findings = inv.draft_findings
+        if isinstance(findings, dict):
+            sections.append(f"\nCondition Summary: {findings.get('condition_summary', 'N/A')}")
+            for f in findings.get("findings", []):
+                sections.append(f"  - {f.get('title', 'Finding')}: {f.get('detail', '')}")
+
+    if inv.report:
+        report_data = inv.report
+        if isinstance(report_data, dict):
+            sections.append(f"\nVerification Status: {report_data.get('overall_status', 'pending')}")
+            sections.append(f"Confidence: {report_data.get('overall_confidence', 'N/A')}%")
+
+    sections.append("\n--- Pending Officer Review ---")
+    return "\n".join(sections)
+

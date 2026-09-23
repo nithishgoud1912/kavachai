@@ -19,9 +19,22 @@ from app.db.object_store import object_store
 from app.db.tabular_store import tabular_store
 from app.db.graph_store import graph_store
 from app.models.evidence import EvidenceResponse
-from app.deps import get_current_session
+from app.deps import Principal, get_current_session, require_permission
 
 router = APIRouter(prefix="/api/v1", tags=["evidence"])
+
+
+async def _assert_source_scope(
+    source_id: str, session: SessionModel, principal: Principal, db: AsyncSession,
+) -> None:
+    """Do not expose raw/object-store contents merely because an opaque ID is known."""
+    document = (await db.execute(select(Document).where(Document.source_id == source_id))).scalar_one_or_none()
+    if not document:
+        return  # Built-in corpus/P&ID sources have no document row.
+    if document.session_id and document.session_id != session.id:
+        raise HTTPException(status_code=403, detail="Source is outside this session scope")
+    if document.department_scope and document.department_scope.strip().lower() != principal.department.strip().lower():
+        raise HTTPException(status_code=403, detail="Source is outside this department scope")
 
 
 @router.get("/evidence/{source_id}", response_model=EvidenceResponse)
@@ -30,6 +43,7 @@ async def get_evidence(
     page: Optional[int] = Query(None),
     equipment_id: Optional[str] = Query(None),
     current_session: SessionModel = Depends(get_current_session),
+    _: Principal = Depends(require_permission("document:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -45,6 +59,7 @@ async def get_evidence(
     doc = doc_result.scalar_one_or_none()
 
     if doc:
+        await _assert_source_scope(source_id, current_session, principal, db)
         # Build document evidence response
         excerpt = None
         view_url = f"/api/v1/files/{source_id}/page/{page or 1}"
@@ -139,8 +154,14 @@ async def get_evidence(
 
 
 @router.get("/files/{source_id}/page/{page}")
-async def get_document_page_render(source_id: str, page: int):
+async def get_document_page_render(
+    source_id: str, page: int,
+    current_session: SessionModel = Depends(get_current_session),
+    principal: Principal = Depends(require_permission("document:read")),
+    db: AsyncSession = Depends(get_db),
+):
     """Serve a rendered PNG page of a PDF document for the Source Viewer."""
+    await _assert_source_scope(source_id, current_session, principal, db)
     png_bytes = object_store.get_file_page(source_id, page)
     if png_bytes:
         return Response(content=png_bytes, media_type="image/png")
@@ -155,8 +176,14 @@ async def get_document_page_render(source_id: str, page: int):
 
 @router.get("/evidence/files/{source_id}/raw")
 @router.get("/files/{source_id}/raw")
-async def get_raw_file(source_id: str):
+async def get_raw_file(
+    source_id: str,
+    current_session: SessionModel = Depends(get_current_session),
+    principal: Principal = Depends(require_permission("document:read")),
+    db: AsyncSession = Depends(get_db),
+):
     """Serve raw uploaded file bytes."""
+    await _assert_source_scope(source_id, current_session, principal, db)
     raw = object_store.get_raw_file(source_id)
     if not raw:
         raise HTTPException(status_code=404, detail="File not found")

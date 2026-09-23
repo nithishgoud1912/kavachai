@@ -91,7 +91,11 @@ def tmp_exports(tmp_path, monkeypatch):
 
 def run_async(coro):
     """Run an async coroutine synchronously in tests."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 # ── Tests: DOCX ───────────────────────────────────────────────────────────────

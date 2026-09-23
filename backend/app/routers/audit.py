@@ -14,7 +14,7 @@ from sqlalchemy import select, func, desc
 from app.db.database import get_db
 from app.db.sql_models import AuditLogEntry, Session as SessionModel
 from app.models.audit import AuditEntry, AuditLogResponse
-from app.deps import get_current_session
+from app.deps import Principal, get_current_session, require_permission
 
 router = APIRouter(prefix="/api/v1", tags=["audit"])
 
@@ -24,6 +24,7 @@ async def get_audit_log(
     limit: int = 50,
     offset: int = 0,
     current_session: SessionModel = Depends(get_current_session),
+    _: Principal = Depends(require_permission("audit:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """

@@ -22,18 +22,17 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 
 class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy ORM models."""
     pass
 
 
 async def init_db():
-    """Create all tables on startup and ensure schema evolution."""
-    from sqlalchemy import text
+    """Create all tables on startup if they don't exist and run column migrations."""
+    import app.db.sql_models  # Ensure models are registered with Base.metadata
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-        # Auto-migrate newly added columns for SQLite
         def _migrate_columns(sync_conn):
+            from sqlalchemy import text
             # Check sessions table
             res = sync_conn.execute(text("PRAGMA table_info(sessions)"))
             columns = [row[1] for row in res.fetchall()]
@@ -41,6 +40,12 @@ async def init_db():
                 sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN expires_at DATETIME"))
             if "is_revoked" not in columns:
                 sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN is_revoked BOOLEAN DEFAULT 0"))
+            if "user_id" not in columns:
+                sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN user_id TEXT"))
+            if "mfa_verified" not in columns:
+                sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN mfa_verified BOOLEAN DEFAULT 1"))
+            if "auth_method" not in columns:
+                sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN auth_method TEXT"))
 
             # Check investigations table
             res_inv = sync_conn.execute(text("PRAGMA table_info(investigations)"))
@@ -49,6 +54,18 @@ async def init_db():
                 sync_conn.execute(text("ALTER TABLE investigations ADD COLUMN events JSON DEFAULT '[]'"))
             if "attachments" not in inv_cols:
                 sync_conn.execute(text("ALTER TABLE investigations ADD COLUMN attachments JSON DEFAULT '[]'"))
+
+            # Check documents table
+            res_doc = sync_conn.execute(text("PRAGMA table_info(documents)"))
+            doc_cols = [row[1] for row in res_doc.fetchall()]
+            if "session_id" not in doc_cols:
+                sync_conn.execute(text("ALTER TABLE documents ADD COLUMN session_id TEXT"))
+
+            # Check datasets table
+            res_ds = sync_conn.execute(text("PRAGMA table_info(datasets)"))
+            ds_cols = [row[1] for row in res_ds.fetchall()]
+            if "session_id" not in ds_cols:
+                sync_conn.execute(text("ALTER TABLE datasets ADD COLUMN session_id TEXT"))
 
         await conn.run_sync(_migrate_columns)
 

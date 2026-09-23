@@ -339,3 +339,171 @@ export interface InvestigationSummary {
   created_at: string;
   completed_at: string | null;
 }
+
+// ─── Sovereign Workbench Core Types ─────────────────────────────────
+
+export type TaskMode = "auto" | "document" | "code" | "vision" | "spreadsheet";
+export type DeliverableType = "word" | "ppt" | "excel" | "code" | "chat";
+export type TaskStatus =
+  | "queued"
+  | "planning"
+  | "running"
+  | "awaiting_review"
+  | "complete"
+  | "failed";
+
+export interface SubTaskItem {
+  id: string;
+  goal: string;
+  assigned_model: string;
+  task_type: string;
+  status: "pending" | "running" | "done" | "skipped" | "failed";
+  started_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
+  error?: string;
+}
+
+export interface ToolCallEvent {
+  id: string;
+  subtask_id?: string;
+  tool_name: string;
+  category: "file" | "code_sandbox" | "doc_search" | "spreadsheet" | "ocr" | "vision";
+  arguments: Record<string, unknown> | string;
+  status: "running" | "completed" | "failed" | "blocked";
+  started_at: string;
+  duration_ms?: number;
+  result_summary?: string;
+  raw_output?: string;
+  sandbox_result?: {
+    exit_code: number;
+    stdout: string;
+    stderr: string;
+    duration_ms: number;
+    memory_mb?: number;
+  };
+}
+
+export interface ArtifactItem {
+  id: string;
+  task_id: string;
+  name: string;
+  type: "docx" | "pptx" | "xlsx" | "code" | "image" | "pdf";
+  size_bytes: number;
+  created_at: string;
+  model_used: string;
+  download_url: string;
+  preview_url?: string;
+  metadata?: {
+    pages?: number;
+    slides?: number;
+    rows?: number;
+    language?: string;
+    bounding_boxes?: { label: string; box_2d: number[]; confidence?: number }[];
+    summary?: string;
+    sources?: EvidenceReference[];
+    sections?: { title: string; content: string }[];
+    sheets?: { name: string; headers: string[]; data: (string | number)[][] }[];
+    slides_data?: { title: string; points: string[]; speaker_notes?: string }[];
+  };
+}
+
+export interface WorkbenchTask {
+  id: string;
+  query: string;
+  mode: TaskMode;
+  deliverable_type?: DeliverableType;
+  status: TaskStatus;
+  attachments: AttachmentItem[];
+  plan: SubTaskItem[];
+  tool_calls: ToolCallEvent[];
+  reasoning_output: string;
+  artifacts: ArtifactItem[];
+  citations: EvidenceReference[];
+  created_at: string;
+  completed_at?: string;
+  hitl_required?: boolean;
+  hitl_status?: "pending" | "approved" | "revised" | "rejected";
+  hitl_comments?: string;
+  models_used: string[];
+  confidence?: number;
+}
+
+// ─── Model Router Types ──────────────────────────────────────────────
+
+export interface ModelRegistryEntry {
+  id: string;
+  name: string;
+  display_name: string;
+  provider: "ollama" | "vllm" | "local";
+  size: string;
+  quantization?: string;
+  context_length: number;
+  capabilities: ("reasoning" | "code" | "vision" | "embedding" | "extraction")[];
+  status: "loaded" | "warm" | "cold" | "offline";
+  vram_usage_gb: number;
+  max_vram_gb: number;
+  latency_p95_ms: number;
+  endpoint: string;
+}
+
+export interface RoutingRule {
+  id: string;
+  task_type: string;
+  preferred_model_id: string;
+  fallback_model_id?: string;
+  condition_description: string;
+  enabled: boolean;
+}
+
+export interface RoutingDecisionLog {
+  id: string;
+  timestamp: string;
+  task_id?: string;
+  query_snippet: string;
+  detected_intent: string;
+  selected_model: string;
+  reason: string;
+  confidence: number;
+}
+
+// ─── Network Monitor & Sovereignty Types ────────────────────────────
+
+export interface NetworkConnectionEntry {
+  id: string;
+  timestamp: string;
+  destination: string;
+  port: number;
+  service: string;
+  method: string;
+  status: "allowed" | "blocked";
+  latency_ms: number;
+}
+
+export interface EgressReport {
+  total_connections: number;
+  local_allowed: number;
+  external_recorded: number;
+  external_destinations: string[];
+  sovereign: boolean;
+  session_start: string;
+  verified_airgap: boolean;
+  allowlist: string[];
+}
+
+// ─── Code Sandbox Types ──────────────────────────────────────────────
+
+export interface SandboxExecutionResult {
+  id: string;
+  code: string;
+  language: string;
+  exit_code: number;
+  stdout: string;
+  stderr: string;
+  execution_time_ms: number;
+  memory_peak_mb: number;
+  blocked_imports?: string[];
+  is_sandboxed: boolean;
+  status: "success" | "runtime_error" | "security_blocked" | "timeout";
+}
+

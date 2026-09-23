@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     AGENT_TIMEOUT_SECONDS: int = 30
     VISION_TIMEOUT_SECONDS: int = 60
 
+    # --- Local security / RBAC ---
+    # Set ENVIRONMENT=production and a long random BOOTSTRAP_TOKEN before first start.
+    ENVIRONMENT: str = "development"
+    ALLOW_DEMO_SESSIONS: bool = True
+    BOOTSTRAP_TOKEN: str = ""
+    ACCESS_TOKEN_TTL_MINUTES: int = 5
+    SESSION_IDLE_MINUTES: int = 15
+    SESSION_MAX_HOURS: int = 8
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from JSON string."""

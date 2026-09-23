@@ -4,29 +4,37 @@
 /* ─── KavachAI Warm Minimal Design Tokens ──────────────────────────── */
 
 @theme inline {
-  --color-bg: #faf8f5;
+  --color-bg: #f9f7f4;
+  --color-bg-base: #f9f7f4;
+  --color-bg-sidebar: #fefefe;
+  --color-bg-card: #fefefe;
+  --color-bg-card-muted: #ede7de;
   --color-bg-warm: #f5efe6;
-  --color-surface: #ffffff;
-  --color-surface-2: #eee8df;
+  --color-surface: #fefefe;
+  --color-surface-2: #ede7de;
   --color-surface-3: #e4dcce;
 
-  --color-border: #e2dacd;
+  --color-border: #ede8e2;
+  --color-border-subtle: #ede8e2;
   --color-border-light: #eee7dc;
   --color-border-hi: #c7bcab;
 
   --color-text: #2d2a26;
-  --color-text-2: #655f56;
+  --color-text-primary: #2d2a26;
+  --color-text-2: #998c84;
+  --color-text-secondary: #998c84;
   --color-text-3: #91887b;
 
-  --color-accent: #c45d3e;
-  --color-accent-dim: #a84b30;
+  --color-accent: #c35c3e;
+  --color-accent-dim: #a84d34;
+  --color-accent-hover: #a84d34;
   --color-accent-2: #d97757;
 
-  --color-green: #2d7a4d;
+  --color-green: #2d794d;
   --color-teal: #21786c;
-  --color-purple: #754c96;
-  --color-orange: #c45d3e;
-  --color-red: #ba3838;
+  --color-purple: #744c95;
+  --color-orange: #c35c3e;
+  --color-red: #b83838;
   --color-pink: #a84469;
 
   --font-serif: 'Playfair Display', var(--font-playfair, Georgia), Georgia, serif;
@@ -39,6 +47,27 @@
 
 :root {
   color-scheme: light;
+
+  /* Pixel-sampled Sovereign tokens */
+  --bg-base: #f9f7f4;
+  --bg-sidebar: #fefefe;
+  --bg-card: #fefefe;
+  --bg-card-muted: #ede7de;
+  --border-subtle: #ede8e2;
+  --text-primary: #2d2a26;
+  --text-secondary: #998c84;
+  --accent: #c35c3e;
+  --accent-soft: rgba(195, 92, 62, 0.08);
+  --accent-hover: #a84d34;
+  --success: #2d794d;
+  --success-bg: #e9f0ec;
+  --warning: #b8860b;
+  --warning-bg: #f6eccf;
+  --danger: #b83838;
+  --danger-bg: #f2e6e3;
+  --info-purple: #744c95;
+  --info-purple-bg: #f0ecf3;
+  --sovereign: #c35c3e;
 
   /* Contact, Mid, and Ambient shadow layers */
   --shadow-contact: 0 1px 2px rgba(45, 42, 38, 0.06);

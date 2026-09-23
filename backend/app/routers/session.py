@@ -19,6 +19,7 @@ from app.models.session import (
     SessionRevokeResponse,
 )
 from app.deps import get_current_session
+from app.config import settings
 
 router = APIRouter(prefix="/api/v1", tags=["session"])
 
@@ -32,6 +33,8 @@ async def create_session(body: SessionCreate, db: AsyncSession = Depends(get_db)
     Create a lightweight session with 24-hour expiration.
     Implements: FR-ACC-1, FR-ACC-2
     """
+    if not settings.ALLOW_DEMO_SESSIONS:
+        raise HTTPException(status_code=403, detail="Demo sessions are disabled; use /api/v1/auth/login")
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(hours=DEFAULT_SESSION_TTL_HOURS)
 
@@ -77,6 +80,8 @@ async def revoke_session(
     Revoke a session (defaults to current session if no session_id specified).
     """
     target_id = body.session_id if (body and body.session_id) else current_session.id
+    if target_id != current_session.id:
+        raise HTTPException(status_code=403, detail="Sessions may only revoke themselves")
 
     result = await db.execute(select(SessionModel).where(SessionModel.id == target_id))
     session_to_revoke = result.scalar_one_or_none()

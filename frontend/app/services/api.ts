@@ -17,6 +17,16 @@ import type {
   ChatMessage,
   InvestigationSummary,
   AttachmentItem,
+  WorkbenchTask,
+  TaskMode,
+  DeliverableType,
+  ModelRegistryEntry,
+  RoutingRule,
+  RoutingDecisionLog,
+  NetworkConnectionEntry,
+  EgressReport,
+  SandboxExecutionResult,
+  ArtifactItem,
 } from "@/app/types";
 
 export type { AttachmentItem };
@@ -118,6 +128,36 @@ export async function revokeSession(sessionId?: string): Promise<SessionRevokeRe
     credentials: "include",
   });
   return handleResponse<SessionRevokeResponse>(res);
+}
+
+export interface LocalAuthResponse {
+  session_id: string | null;
+  mfa_required: boolean;
+  expires_at?: string | null;
+  user_id?: string | null;
+  username?: string | null;
+  department?: string | null;
+  roles: string[];
+}
+
+export async function loginWithPassword(username: string, password: string): Promise<LocalAuthResponse> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+    credentials: "include",
+  });
+  return handleResponse<LocalAuthResponse>(res);
+}
+
+export async function verifyLocalMfa(sessionId: string, code: string): Promise<LocalAuthResponse> {
+  const res = await fetch(`${API_BASE}/auth/mfa/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, code }),
+    credentials: "include",
+  });
+  return handleResponse<LocalAuthResponse>(res);
 }
 
 // ─── Knowledge Base ─────────────────────────────────────────────────
@@ -410,4 +450,137 @@ export async function getInvestigations(): Promise<InvestigationSummary[]> {
     credentials: "include",
   });
   return handleResponse<InvestigationSummary[]>(res);
+}
+
+// ─── Sovereign Workbench Tasks ──────────────────────────────────────
+
+export async function createTask(
+  query: string,
+  mode: TaskMode = "auto",
+  deliverableType?: DeliverableType,
+  attachments: AttachmentItem[] = []
+): Promise<WorkbenchTask> {
+  const res = await fetch(`${API_BASE}/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify({ query, mode, deliverable_type: deliverableType, attachments }),
+    credentials: "include",
+  });
+  return handleResponse<WorkbenchTask>(res);
+}
+
+export async function getTasks(): Promise<WorkbenchTask[]> {
+  const res = await fetch(`${API_BASE}/tasks`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<WorkbenchTask[]>(res);
+}
+
+export async function getTask(id: string): Promise<WorkbenchTask> {
+  const res = await fetch(`${API_BASE}/tasks/${id}`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<WorkbenchTask>(res);
+}
+
+export async function submitTaskReview(
+  id: string,
+  action: "approve" | "revise" | "reject",
+  comments?: string
+): Promise<WorkbenchTask> {
+  const res = await fetch(`${API_BASE}/tasks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify({ action, comments }),
+    credentials: "include",
+  });
+  return handleResponse<WorkbenchTask>(res);
+}
+
+export async function sendTaskFollowUp(
+  id: string,
+  message: string
+): Promise<{ reply: string }> {
+  const res = await fetch(`${API_BASE}/tasks/${id}/followup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify({ message }),
+    credentials: "include",
+  });
+  return handleResponse<{ reply: string }>(res);
+}
+
+// ─── Model Router ───────────────────────────────────────────────────
+
+export async function getModels(): Promise<ModelRegistryEntry[]> {
+  const res = await fetch(`${API_BASE}/models`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<ModelRegistryEntry[]>(res);
+}
+
+export async function getRoutingRules(): Promise<RoutingRule[]> {
+  const res = await fetch(`${API_BASE}/models?type=rules`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<RoutingRule[]>(res);
+}
+
+export async function saveRoutingRule(rule: RoutingRule): Promise<RoutingRule> {
+  const res = await fetch(`${API_BASE}/models`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify({ rule }),
+    credentials: "include",
+  });
+  return handleResponse<RoutingRule>(res);
+}
+
+export async function getLiveRoutingLogs(): Promise<RoutingDecisionLog[]> {
+  const res = await fetch(`${API_BASE}/models?type=logs`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<RoutingDecisionLog[]>(res);
+}
+
+// ─── Code Sandbox ───────────────────────────────────────────────────
+
+export async function runSandbox(
+  code: string,
+  language: string = "python"
+): Promise<SandboxExecutionResult> {
+  const res = await fetch(`${API_BASE}/sandbox/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify({ code, language }),
+    credentials: "include",
+  });
+  return handleResponse<SandboxExecutionResult>(res);
+}
+
+// ─── Network Monitor & Sovereignty ──────────────────────────────────
+
+export async function getNetworkStatus(): Promise<EgressReport> {
+  const res = await fetch(`${API_BASE}/network-monitor`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<EgressReport>(res);
+}
+
+export async function getNetworkConnections(): Promise<NetworkConnectionEntry[]> {
+  const res = await fetch(`${API_BASE}/network-monitor?type=connections`, {
+    headers: { ...getAuthHeaders() },
+    credentials: "include",
+  });
+  return handleResponse<NetworkConnectionEntry[]>(res);
+}
+
+// EOF helper to avoid duplicate trailing brace
+function _eof() {
 }

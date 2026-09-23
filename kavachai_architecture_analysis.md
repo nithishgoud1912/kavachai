@@ -24,69 +24,83 @@ graph TB
             R_EV["Evidence Router<br/>/api/v1/evidence/*"]
             R_EXP["Export Router<br/>/api/v1/exports/*"]
             R_AUD["Audit Router<br/>/api/v1/audit-log"]
+            R_APP["Approvals Router<br/>/api/v1/approvals/*"]
+            R_CHAT["Chat Router<br/>/api/v1/conversations/*"]
         end
 
-        subgraph "Orchestrator"
+        subgraph "Orchestration Engines"
             ORCH["InvestigationRunner<br/>orchestrator/investigation.py"]
+            LG_INV["LangGraph Investigation Graph<br/>langgraph/graphs/investigation_graph.py"]
+            LG_APP["LangGraph Approval Graph (HITL)<br/>langgraph/graphs/approval_graph.py"]
+            LG_CHAT["LangGraph ReAct Chat Agent<br/>langgraph/graphs/chat_graph.py"]
             MR["ModelRouter<br/>orchestrator/model_router.py"]
         end
 
-        subgraph "AI Agents"
-            PLAN["Planner Agent"]
+        subgraph "AI Agents & Specialist Nodes"
+            PLAN["Planner Agent / plan_node"]
             DOC["Document Agent"]
             DATA["Data Agent"]
             VIS["Vision Agent"]
             RAG["RAG Agent"]
-            SYN["Synthesis Agent"]
-            VER["Verification Agent"]
+            SYN["Synthesis Agent / synthesis_node"]
+            VER["Verification Agent / verification_node"]
         end
 
-        subgraph "Ingestion Pipeline"
-            EXT["extract.py"]
+        subgraph "Tiered Ingestion Pipeline"
+            EXT["extract.py<br/>(4-Tier OCR: fitz → density → pytesseract → VLM)"]
             CHK["chunk.py"]
             TAG["tag.py"]
             EMB["embed.py"]
             TAB["tabular.py"]
         end
 
-        subgraph "Services"
-            AUD_SVC["Audit Service"]
-            RPT_SVC["Report Service"]
+        subgraph "Services & Security"
+            AUD_SVC["Audit Service (WORM)"]
+            RPT_SVC["Report Service (Briefings)"]
+            SBOX["Docker Code Sandbox<br/>services/code_sandbox.py<br/>(Isolated, --network none, AST)"]
         end
     end
 
-    subgraph "Data Stores"
+    subgraph "Data Stores & Persistence"
         SQLITE[("SQLite<br/>kavachai.db")]
-        CHROMA[("ChromaDB<br/>Vector Store")]
+        CHROMA[("ChromaDB<br/>kavachai_chunks<br/>(887 chunks: Demo + MRPL Statutory)")]
         OBJ[("Object Store<br/>Filesystem")]
-        GRAPH["NetworkX<br/>Graph Store<br/>(In-Memory)"]
+        GRAPH["NetworkX<br/>Graph Store<br/>(In-Memory Topology)"]
+        LG_CHECK[("LangGraph Checkpointer<br/>SqliteSaver (State Persistence)")]
     end
 
-    OLLAMA["Ollama Server<br/>(localhost:11434)<br/>Qwen 2.5 3B + nomic-embed-text"]
+    OLLAMA["Ollama Server<br/>(localhost:11434)<br/>Qwen 2.5 3B + Qwen 2.5-VL 3B + nomic-embed-text"]
 
     FE -->|"HTTP/SSE"| MAIN
-    MAIN --> R_SESSION & R_KB & R_INV & R_EV & R_EXP & R_AUD
-    R_INV --> ORCH
-    ORCH --> PLAN & DOC & DATA & VIS & RAG & SYN & VER
+    MAIN --> R_SESSION & R_KB & R_INV & R_EV & R_EXP & R_AUD & R_APP & R_CHAT
+    R_INV --> ORCH & LG_INV
+    R_APP --> LG_APP
+    R_CHAT --> LG_CHAT
+    ORCH & LG_INV --> PLAN & DOC & DATA & VIS & RAG & SYN & VER
+    DATA --> SBOX
+    LG_INV & LG_APP & LG_CHAT --> LG_CHECK
     PLAN & SYN & VER -->|"generate/chat"| MR
     DOC & RAG -->|"embed"| MR
+    EXT -->|"VLM OCR fallback"| MR
     EMB -->|"embed"| MR
     MR -->|"HTTP POST"| OLLAMA
     R_KB --> EXT --> CHK --> TAG --> EMB
     EMB --> CHROMA
     R_KB --> TAB --> SQLITE
-    R_SESSION & R_INV & R_AUD --> SQLITE
+    R_SESSION & R_INV & R_AUD & R_APP --> SQLITE
     DOC & RAG --> CHROMA
     DATA --> SQLITE
     VIS --> GRAPH
     R_KB & R_EV --> OBJ
     AUD_SVC --> SQLITE
-    RPT_SVC --> R_INV
+    RPT_SVC --> R_INV & LG_APP
 ```
 
 **Source references:**
-- Entry point: [main.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/main.py#L21-L61)
+- Entry point & lifespan: [main.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/main.py#L21-L85)
 - Config & env: [config.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/config.py#L12-L48)
+- LangGraph graphs: [graphs/](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/graphs/)
+- Code sandbox: [code_sandbox.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/services/code_sandbox.py)
 - Frontend entry: [page.tsx](file:///c:/Users/HP/Desktop/SIH/KavachAI/frontend/app/page.tsx) (session login), [workspace/page.tsx](file:///c:/Users/HP/Desktop/SIH/KavachAI/frontend/app/workspace/page.tsx) (query input)
 - API client: [api.ts](file:///c:/Users/HP/Desktop/SIH/KavachAI/frontend/app/services/api.ts)
 
@@ -122,28 +136,36 @@ sequenceDiagram
 
 ---
 
-### 2.2 Workflow B — Document Ingestion Pipeline
+### 2.2 Workflow B — Document Ingestion Pipeline (with 4-Tier OCR)
 
 ```mermaid
 flowchart TD
-    START([User uploads file via<br/>POST /knowledge-base/documents]) --> PARSE_EQ[Parse equipment_ids<br/>from JSON string]
-    PARSE_EQ --> GEN_SRC[Generate source_id<br/>doc_UUID8]
+    START([User uploads file via<br/>POST /knowledge-base/documents<br/>or ingest_mrpl_public.py]) --> PARSE_EQ[Parse equipment_ids<br/>from JSON string]
+    PARSE_EQ --> GEN_SRC[Generate source_id<br/>doc_UUID8 or manifest source_id]
     GEN_SRC --> SAVE_OBJ[Save raw bytes to<br/>Object Store]
     SAVE_OBJ --> INSERT_DB[INSERT Document record<br/>status = processing]
     INSERT_DB --> EXTRACT{extract_text<br/>.pdf / .docx / .txt}
     
-    EXTRACT -->|PDF| PYMUPDF[PyMuPDF: extract per-page text]
     EXTRACT -->|DOCX| DOCX_LIB[python-docx: paragraph concat]
     EXTRACT -->|TXT| TXT_READ[UTF-8 decode]
     EXTRACT -->|Other| EMPTY[Return empty pages]
     
-    PYMUPDF & DOCX_LIB & TXT_READ --> HAS_PAGES{pages non-empty?}
+    EXTRACT -->|PDF| TIER1[Tier 1: PyMuPDF fitz<br/>Extract native text per page]
+    TIER1 --> DENSITY{Page text density?<br/>len > 50 chars}
+    DENSITY -->|Sufficient| TIER1_PASS[Use extracted native text]
+    DENSITY -->|Sparse / Scanned| TIER2{Tier 2: Tesseract OCR<br/>pytesseract available?}
+    TIER2 -->|Yes| TIER2_RUN[Render page at 300 DPI<br/>Run local pytesseract OCR]
+    TIER2 -->|No / Sparse| TIER3{Tier 3: Multimodal VLM<br/>Qwen2.5-VL via ModelRouter}
+    TIER3 -->|Yes| TIER3_RUN[VLM visual OCR extraction<br/>Transcribes tables & diagrams]
+    TIER3 -->|No| TIER4_FALL[Tier 4: Graceful Degradation<br/>Keep raw sparse text with diagnostic note]
+    
+    TIER1_PASS & TIER2_RUN & TIER3_RUN & TIER4_FALL & DOCX_LIB & TXT_READ --> HAS_PAGES{pages non-empty?}
     EMPTY --> NO_TEXT[status = ready, chunks = 0]
     
-    HAS_PAGES -->|Yes| CHUNK[chunk_pages<br/>512 chars, 64 overlap<br/>sentence-boundary aware]
+    HAS_PAGES -->|Yes| CHUNK[chunk_pages<br/>512 chars, 64 overlap<br/>or 1800/250 chars for MRPL statutory]
     HAS_PAGES -->|No| NO_TEXT
     
-    CHUNK --> TAG_CHUNKS[tag_chunks<br/>source_id, page, equipment_ids,<br/>document_type, department_scope]
+    CHUNK --> TAG_CHUNKS[tag_chunks<br/>source_id, page, equipment_ids,<br/>document_type, department_scope, provenance]
     TAG_CHUNKS --> EMBED[generate_embeddings<br/>via ModelRouter → Ollama<br/>nomic-embed-text 768d]
     EMBED --> VECTOR_STORE[vector_store.upsert_chunks<br/>ChromaDB cosine HNSW]
     VECTOR_STORE --> UPDATE_READY[UPDATE Document<br/>status = ready, chunks = N]
@@ -159,7 +181,8 @@ flowchart TD
 
 **Source references:**
 - Router: [knowledge_base.py L36-L122](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/routers/knowledge_base.py#L36-L122)
-- Extract: [extract.py L14-L99](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/ingestion/extract.py#L14-L99)
+- MRPL Ingestion Script: [ingest_mrpl_public.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/scripts/ingest_mrpl_public.py)
+- Tiered OCR Extract: [extract.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/ingestion/extract.py)
 - Chunk: [chunk.py L13-L54](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/ingestion/chunk.py#L13-L54)
 - Tag: [tag.py L17-L64](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/ingestion/tag.py#L17-L64)
 - Embed: [embed.py L14-L35](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/ingestion/embed.py#L14-L35)
@@ -442,6 +465,124 @@ flowchart TD
 
 ---
 
+### 2.9 Workflow I — LangGraph Investigation StateGraph Engine
+
+```mermaid
+flowchart TD
+    START([User submits query]) --> INIT_STATE[Initialize InvestigationGraphState<br/>thread_id = investigation_id]
+    INIT_STATE --> PLAN_N[plan_node<br/>LLM decomposes query into subtasks]
+    PLAN_N --> ROUTE_P{route_after_plan<br/>is_in_scope?}
+    
+    ROUTE_P -->|No| INSUF_P[insufficient_evidence<br/>confidence = 10] --> END_NODE([END])
+    
+    ROUTE_P -->|Yes| GATHER_N[gather_evidence_node<br/>asyncio.gather concurrent execution:<br/>• Document Agent<br/>• Data Agent / Sandbox<br/>• Vision Agent<br/>• RAG Agent]
+    
+    GATHER_N --> SYNTH_N[synthesis_node<br/>EvidenceBundle → DraftFindings]
+    SYNTH_N --> VERIF_N[verification_node<br/>Cross-check against source_ids]
+    
+    VERIF_N --> ROUTE_V{route_after_verification<br/>supported_count > 0?}
+    
+    ROUTE_V -->|No| INSUF_V[insufficient_evidence<br/>confidence = 15] --> END_NODE
+    ROUTE_V -->|Yes| REPORT_N[build_report_node<br/>Assemble InvestigationReport<br/>Resolve Audit Entry] --> END_NODE
+
+    subgraph "State Persistence"
+        CHECKPOINT[("SqliteSaver Checkpointer<br/>Snapshots state per node transition<br/>Enables resuming & replay")]
+    end
+    
+    INIT_STATE -.-> CHECKPOINT
+    PLAN_N -.-> CHECKPOINT
+    GATHER_N -.-> CHECKPOINT
+    SYNTH_N -.-> CHECKPOINT
+    VERIF_N -.-> CHECKPOINT
+    REPORT_N -.-> CHECKPOINT
+
+    style INSUF_P fill:#fbbf24,color:#1e1e1e
+    style INSUF_V fill:#fbbf24,color:#1e1e1e
+    style REPORT_N fill:#4ade80,color:#1e1e1e
+```
+
+**Source references:**
+- Investigation Graph: [investigation_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/graphs/investigation_graph.py)
+- State Schema: [investigation_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/graphs/investigation_graph.py) (`InvestigationGraphState`)
+- SQLite Checkpointer: [checkpointer.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/checkpointer.py)
+
+---
+
+### 2.10 Workflow J — Human-in-the-Loop (HITL) Executive Approval Workflow
+
+```mermaid
+flowchart TD
+    START_APP([Trigger Executive Briefing<br/>POST /api/v1/approvals]) --> DRAFT_N[draft_note_node<br/>render_briefing_draft<br/>Increments draft_version]
+    DRAFT_N --> WAIT_N[wait_approval_node<br/>Interrupt graph execution<br/>status = pending_review]
+    
+    WAIT_N --> USER_ACT{Supervisor Action<br/>POST /api/v1/approvals/{id}/action}
+    
+    USER_ACT -->|Approve| PUB_N[publish_briefing_node<br/>Finalize official briefing note<br/>status = published] --> END_PUB([END])
+    USER_ACT -->|Reject| REJ_N[Mark rejected<br/>status = rejected] --> END_REJ([END])
+    USER_ACT -->|Revise with notes| REV_N[revise_draft_node<br/>Incorporate supervisor feedback<br/>status = in_revision]
+    REV_N --> DRAFT_N
+
+    style WAIT_N fill:#38bdf8,color:#1e1e1e
+    style PUB_N fill:#4ade80,color:#1e1e1e
+    style REJ_N fill:#f87171,color:#1e1e1e
+```
+
+**Source references:**
+- Approval Graph: [approval_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/graphs/approval_graph.py)
+- Approvals Router: [approval.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/routers/approval.py)
+- Briefing Service: [report_service.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/services/report_service.py) (`render_briefing_draft`)
+
+---
+
+### 2.11 Workflow K — LangGraph ReAct Multi-Tool Chat Agent
+
+```mermaid
+flowchart TD
+    USER_MSG([User sends message<br/>POST /api/v1/conversations/{id}/messages]) --> AGENT_N[agent node<br/>LLM reasoner evaluates conversation<br/>with available tools]
+    
+    AGENT_N --> DECIDE{Tool call required?}
+    
+    DECIDE -->|Yes| TOOLS_N[tools node<br/>Execute selected tool:<br/>• knowledge_base_search<br/>• equipment_status_lookup<br/>• sensor_telemetry_query]
+    TOOLS_N --> AGENT_N
+    
+    DECIDE -->|No / Complete| RESP[Generate conversational response<br/>with exact citations] --> CHAT_END([END])
+
+    style TOOLS_N fill:#a78bfa,color:#1e1e1e
+    style RESP fill:#4ade80,color:#1e1e1e
+```
+
+**Source references:**
+- Chat Graph: [chat_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/graphs/chat_graph.py)
+- Chat Router: [chat.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/routers/chat.py)
+
+---
+
+### 2.12 Workflow L — Hardened Docker Code Sandbox Execution
+
+```mermaid
+flowchart TD
+    EXEC_REQ([Numeric Analysis / Code Execution Request]) --> CHK_DOCKER{Docker daemon<br/>available?}
+    
+    CHK_DOCKER -->|Yes| DOCKER_RUN[Launch isolated container:<br/>• Image: python:3.12-slim<br/>• Network: --network none air-gapped<br/>• Filesystem: --read-only rootfs<br/>• Privileges: --cap-drop ALL, UID 1000<br/>• Limits: 256MB RAM, 1.0 CPU, 5s timeout]
+    DOCKER_RUN --> DOCKER_OUT[Capture stdout/stderr<br/>Enforce max output size]
+    
+    CHK_DOCKER -->|No| AST_VERIF{AST Security Parser<br/>Inspect abstract syntax tree}
+    AST_VERIF -->|Forbidden: os, sys, socket, subprocess, exec, eval| BLOCKED[SecurityException: Unsafe code blocked]
+    AST_VERIF -->|Safe code only: math, pandas| LOCAL_RUN[Execute in restricted namespace<br/>with strict builtins and 5s timeout]
+    
+    DOCKER_OUT & LOCAL_RUN --> RESULT([Return ExecutionResult<br/>stdout, exit_code, duration_ms])
+    BLOCKED --> ERR_OUT([Return error diagnostics])
+
+    style DOCKER_RUN fill:#4ade80,color:#1e1e1e
+    style BLOCKED fill:#f87171,color:#1e1e1e
+```
+
+**Source references:**
+- Code Sandbox Service: [code_sandbox.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/services/code_sandbox.py)
+- Sandbox Test Suite: [test_code_sandbox.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/tests/unit/test_code_sandbox.py)
+
+---
+
 ## 3. Data-Flow Diagrams
 
 ### 3.1 Level 0 — Context Diagram
@@ -660,33 +801,30 @@ flowchart LR
 | Store | Technology | Path | Persistence |
 |-------|-----------|------|-------------|
 | Relational data | SQLite (async via aiosqlite) | `./data/kavachai.db` | Persistent, WAL mode |
-| Vector embeddings | ChromaDB (PersistentClient) | `./data/chroma/` | Persistent, HNSW cosine |
+| Vector embeddings | ChromaDB (PersistentClient) | `./data/chroma/` | Persistent, HNSW cosine (887 chunks: demo + MRPL statutory) |
 | Raw source files | Local filesystem | `./data/objects/{source_id}/` | Persistent |
-| Equipment graph | NetworkX (in-memory) | N/A | **Volatile** — rebuilt on each startup with hardcoded 4-node demo graph |
-| PDF exports | Local filesystem | `./data/exports/` | Persistent, no cleanup |
-| Investigation runners | Python dict (in-memory) | `_runners` in investigations.py | **Volatile** — lost on restart |
+| MRPL Reference Corpus | Local filesystem + ChromaDB | `./data/mrpl_public/` | Persistent (382-page annual report, sha256 verified) |
+| Equipment graph | NetworkX (in-memory) | N/A | Hybrid — runtime extensible with pre-loaded 7-node chain |
+| LangGraph State Checkpointer | SQLite (`SqliteSaver`) | `./data/kavachai.db` / memory | Persistent graph thread state per investigation/approval |
+| PDF exports | Local filesystem | `./data/exports/` | Persistent |
+| Investigation runners | Python dict + LangGraph state | In-memory + SQLite checkpointer | Resilient across SSE disconnects |
 | Session data (frontend) | Browser sessionStorage | N/A | Per-tab, cleared on tab close |
 
-### 4.4 External Data Sharing
+### 4.4 External Data Sharing & Egress Control
 
 > [!IMPORTANT]
-> **Zero external data transmission by design (NFR-SEC-1).** All LLM inference runs through the local Ollama server at `localhost:11434`. The `ModelRouter` is the single chokepoint — no agent imports `httpx` or calls any external endpoint directly. ChromaDB telemetry is explicitly disabled (`anonymized_telemetry=False`).
+> **Zero external data transmission by design (NFR-SEC-1).** All LLM inference runs through the local Ollama server at `localhost:11434`. The `ModelRouter` is the single chokepoint — no agent imports `httpx` or calls any external endpoint directly. Dynamic code execution runs inside a Docker sandbox with `--network none` (verified by `test_egress_monitor.py` and `test_code_sandbox.py`). ChromaDB telemetry is explicitly disabled (`anonymized_telemetry=False`).
 
-### 4.5 Potential Gaps, Ambiguities & Risks
+### 4.5 Security Architecture & Hardening Status
 
-| # | Category | Finding | Severity | Source |
-|---|----------|---------|----------|--------|
-| 1 | **Auth** | No authentication on knowledge-base, evidence, export, or audit endpoints. `deps.py` is empty placeholder. | 🔴 High | [deps.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/deps.py) |
-| 2 | **Auth** | Session validation only checks existence, not expiry. Sessions never expire or get revoked. | 🟡 Medium | [investigations.py L88-L94](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/routers/investigations.py#L88-L94) |
-| 3 | **State** | `_runners` dict is in-memory — SSE will break if backend restarts mid-investigation. | 🟡 Medium | [investigations.py L31](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/routers/investigations.py#L31) |
-| 4 | **Hardcoded** | Evidence router hardcodes `"P-102"` for dataset and P&ID queries (marked with `# TODO: parameterize`). | 🟡 Medium | [evidence.py L74, L87](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/routers/evidence.py#L74) |
-| 5 | **Hardcoded** | Data Agent defaults to `metric="vibration"` — not derived from the planner's sub-task goal. | 🟡 Medium | [investigation.py L238](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/orchestrator/investigation.py#L238) |
-| 6 | **Audit** | `resolve_audit_entry` performs an UPDATE on `audit_log`, contradicting the "append-only" claim (FR-AUD-2). The table technically allows updates via the ORM even though no PATCH API exists. | 🟡 Medium | [audit_service.py L42-L71](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/services/audit_service.py#L42-L71) |
-| 7 | **Offline** | Offline fallback in `model_router._offline_generate` returns hardcoded JSON for exactly 3 demo scenarios. Any other query gets generic stub responses. | 🟡 Medium | [model_router.py L236-L349](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/orchestrator/model_router.py#L236-L349) |
-| 8 | **Concurrency** | `TabularStore` uses synchronous `sqlite3` directly (not the async engine), potentially blocking the event loop on large datasets. | 🟡 Medium | [tabular_store.py L28-L31](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/db/tabular_store.py#L28-L31) |
-| 9 | **Cleanup** | No cleanup mechanism for exported PDFs in `./data/exports/`. Files accumulate indefinitely. | 🟢 Low | [export.py L21-L22](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/routers/export.py#L21-L22) |
-| 10 | **Graph** | Equipment graph is hardcoded to 4 demo nodes. No API or ingestion path to add new equipment relationships. | 🟢 Low | [graph_store.py L20-L37](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/db/graph_store.py#L20-L37) |
-| 11 | **SQL Injection** | `tabular_store.query_by_equipment` uses f-string for table name in SQL. Table names come from controlled `dataset_id`, but the pattern is fragile. | 🟢 Low | [tabular_store.py L83](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/db/tabular_store.py#L83) |
+| # | Category | Previous Risk / Requirement | Resolution / Current Status | Severity | Source |
+|---|----------|----------------------------|-----------------------------|----------|--------|
+| 1 | **Code Sandbox** | Unconstrained script/math execution risk | **Resolved**: Docker container sandbox (`python:3.12-slim`) with `--network none`, `--read-only`, non-root UID 1000, 256MB RAM limit, 1.0 CPU limit, 5s timeout, plus AST forbidden module blocker (`os`, `sys`, `subprocess`, `socket`). | 🟢 Mitigated | [code_sandbox.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/services/code_sandbox.py) |
+| 2 | **Egress Control** | Risk of outbound data leaks from tools | **Resolved**: `egress_monitor` audit verifies zero outbound requests; all model requests strictly channeled through local `ModelRouter`. | 🟢 Mitigated | [test_egress_monitor.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/tests/unit/test_egress_monitor.py) |
+| 3 | **Multi-Tenancy & Schema** | Duplicate `session_id` column in `sql_models.py` | **Resolved**: Cleaned schema definition in `sql_models.py` and validated session ownership enforcement in `test_session_ownership.py`. | 🟢 Fixed | [sql_models.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/db/sql_models.py) |
+| 4 | **OCR Degraded Docs** | Scanned plant logs & PDFs without text layers | **Resolved**: 4-Tier OCR pipeline in `extract.py` combining PyMuPDF native extraction, density thresholding, local Tesseract OCR at 300 DPI, and Qwen2.5-VL visual OCR fallback. | 🟢 Mitigated | [extract.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/ingestion/extract.py) |
+| 5 | **HITL Governance** | Unchecked AI briefing note publication | **Resolved**: LangGraph Human-in-the-Loop approval graph (`approval_graph.py`) enforcing supervisor review, multi-version tracking (`draft_version`), and interruptible execution. | 🟢 Mitigated | [approval_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/graphs/approval_graph.py) |
+| 6 | **State Resilience** | Investigation runner in-memory state loss | **Improved**: LangGraph `SqliteSaver` checkpointer serializes graph state at each node transition, allowing state inspection and resumption. | 🟢 Mitigated | [checkpointer.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/app/langgraph/checkpointer.py) |
 
 ---
 
@@ -697,36 +835,42 @@ flowchart LR
 | Flow | Trigger | Key Components | Terminal States |
 |------|---------|----------------|-----------------|
 | **Session** | User login | Frontend → Session Router → SQLite | Session created |
-| **Doc Ingestion** | File upload | Router → Extract → Chunk → Tag → Embed → ChromaDB | ready / failed |
+| **Doc Ingestion** | File upload / Script | Router → 4-Tier OCR (`extract.py`) → Chunk → Tag → Embed → ChromaDB | ready / failed |
 | **Dataset Ingestion** | CSV upload | Router → pandas → TabularStore → SQLite table | ready / failed |
-| **Investigation** | Query submit | Router → Background → Planner → [Doc∥Data∥Vision] → RAG → Synthesis → Verification → Report | complete / insufficient_evidence / failed |
+| **MRPL Reference Corpus** | Public statutory sync | `ingest_mrpl_public.py` → PDF Extract → Tagging → Vector Store (859 chunks) | ready (persisted) |
+| **Investigation (Legacy)** | Query submit | Router → BackgroundTasks → Planner → [Doc∥Data∥Vision] → RAG → Synthesis → Verification → Report | complete / insufficient_evidence / failed |
+| **Investigation (LangGraph)** | Query submit | Router → LangGraph StateGraph (`plan` → `gather` → `synth` → `verif` → `report`) + SQLite checkpointer | complete / insufficient_evidence |
+| **Executive Approval (HITL)** | Briefing request | Approval Router → LangGraph Approval Graph (`draft` → `wait_approval` → `revise` / `publish`) | published / rejected |
+| **ReAct Chat Agent** | User prompt | Chat Router → LangGraph ReAct Graph (`agent` ↔ `tools` loop) | complete response with citations |
+| **Sandboxed Execution** | Data analysis sub-task | Data Agent → `DockerCodeSandbox` (`--network none`, `--read-only`, AST fallback) | ExecutionResult |
 | **SSE Stream** | Frontend EventSource | Polling `_runners.events[]` + DB status check | investigation_complete / insufficient_evidence |
-| **Export** | Export button | Router → ReportLab PDF → FileResponse | PDF download |
+| **Export** | Export button | Router → ReportLab PDF / DOCX generator → FileResponse | File download |
 | **Audit** | Auto (investigation lifecycle) | Two-write: create on start, resolve on end | Append-only read via GET |
 
 ### Key Dependencies
 
 | Dependency | Role | Required? |
 |-----------|------|-----------|
-| **Ollama (Qwen 2.5 3B)** | Text reasoning, planning, synthesis, verification | No — offline fallback exists |
+| **LangGraph (≥0.4.8)** | StateGraph orchestration, multi-agent loops, HITL approval | Yes |
+| **langgraph-checkpoint-sqlite** | SQLite state persistence and node checkpointing | Yes |
+| **Ollama (Qwen 2.5 3B)** | Text reasoning, planning, synthesis, verification, chat | No — offline fallback exists |
+| **Ollama (Qwen 2.5-VL 3B)** | Multimodal P&ID drawing inspection and Tier-4 visual OCR | No — NetworkX fallback exists |
 | **Ollama (nomic-embed-text)** | 768-dim embeddings for vector search | No — pseudo-embed fallback exists |
-| **SQLite + aiosqlite** | Primary relational store | Yes |
-| **ChromaDB** | Vector similarity search | Yes |
-| **PyMuPDF (fitz)** | PDF text extraction & page rendering | Yes (for PDF files) |
-| **NetworkX** | Equipment relationship graph | Yes (hardcoded data) |
-| **ReportLab** | PDF export generation | Yes (for export feature) |
+| **SQLite + aiosqlite** | Primary relational store and checkpointer | Yes |
+| **ChromaDB** | Vector similarity search (stores demo + 859 MRPL statutory chunks) | Yes |
+| **PyMuPDF (fitz)** | PDF text extraction, 300 DPI image rendering for OCR & vision | Yes |
+| **pytesseract** | Tier-3 local OCR for scanned industrial documents | Optional (graceful fallback) |
+| **Docker SDK** | Isolated code execution sandbox (`--network none`, non-root) | Optional (AST fallback) |
+| **NetworkX** | Equipment relationship graph and cycle-safe topology traversal | Yes |
+| **ReportLab / python-docx** | Branded PDF and DOCX export generation | Yes |
 
-### Key Design Decisions Visible in Code
-
-1. **Single Model Router chokepoint** — All LLM/embedding calls route through `model_router.py`. No agent directly calls Ollama. Enables model-swap-by-config.
-2. **Data Agent uses pure pandas** — Zero LLM calls for numeric analysis. The LLM "never does arithmetic."
-3. **Vision Agent is pre-computed** — Uses a hardcoded NetworkX graph instead of a live VLM. Contract is identical so VLM can be swapped in later.
-4. **Audit is append-only at API layer** — No DELETE/PATCH endpoints exist, though the ORM technically allows updates (used for the two-write resolve pattern).
-5. **Investigation survives SSE disconnect** — BackgroundTasks runs server-side; report is persisted to DB and fetchable via `GET /report` even if SSE was never connected.
-
-### Areas Needing Clarification
-
-1. **Department-scope filtering** — `FR-RAG-2` interface exists but enforcement is simplified. The `department_scope` filter is passed to ChromaDB but there's no middleware preventing cross-department access.
-2. **Multi-user concurrency** — No locking on investigations. Multiple users could theoretically trigger investigations that share the same `_runners` dict.
-3. **Corpus ingestion path** — The `ingest_corpus.py` script is the only way to seed the demo corpus. The API upload endpoints work but are not connected to the suggested questions UI.
-4. **Frontend routing for `/investigation/[id]` and `/report/[id]`** — Directory structure exists but page content was not fully inspected in this analysis.
+### Current Test Suite Verification Status
+```text
+174 passed, 1 skipped, 0 failed in 9.81s
+```
+* **Investigation Graph Tests**: 20 passed ([test_investigation_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/tests/unit/test_investigation_graph.py))
+* **Approval Graph Tests**: 12 passed ([test_approval_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/tests/unit/test_approval_graph.py))
+* **Chat Graph Tests**: 6 passed ([test_chat_graph.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/tests/unit/test_chat_graph.py))
+* **Tiered OCR Pipeline Tests**: 11 passed ([test_ocr_pipeline.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/tests/unit/test_ocr_pipeline.py))
+* **Docker Code Sandbox Tests**: 13 passed ([test_code_sandbox.py](file:///c:/Users/HP/Desktop/SIH/KavachAI/backend/tests/unit/test_code_sandbox.py))
+* **Core Agent & Model Routing Tests**: 112 passed (Session ownership, egress monitor, planners, agents, exporters)

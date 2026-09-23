@@ -10,24 +10,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.database import init_db
 from app.middleware.egress_monitor import egress_monitor
+from app.langgraph.checkpointer import init_checkpointer
+from app.langgraph.graphs.investigation_graph import build_investigation_graph
+from app.langgraph.graphs.approval_graph import build_approval_graph
+from app.langgraph.graphs.chat_graph import build_chat_graph
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown lifecycle — initialize DB, egress audit on start."""
+    """Startup/shutdown lifecycle — initialize DB, egress audit, LangGraph on start."""
     # 1. Existing DB init preserved
     await init_db()
 
     # 2. Egress monitor — sovereignty proof via socket audit
     egress_monitor.install_socket_audit()
 
-    # TODO: LangGraph checkpointer init goes here (Phase 3)
-    # async with init_checkpointer() as checkpointer:
-    #     app.state.investigation_graph = build_investigation_graph(checkpointer)
-    #     app.state.approval_graph = build_approval_graph(checkpointer)
-    #     app.state.chat_graph = build_chat_graph(checkpointer)
-
-    yield
+    # 3. Checkpointer initialization & Graph compilation
+    async with init_checkpointer() as checkpointer:
+        app.state.investigation_graph = build_investigation_graph(checkpointer)
+        app.state.approval_graph = build_approval_graph(checkpointer)
+        app.state.chat_graph = build_chat_graph(checkpointer)
+        yield
 
 
 app = FastAPI(
@@ -62,13 +65,16 @@ async def api_health_check():
 
 
 # --- Route Registration ---
-from app.routers import session, knowledge_base, investigations, evidence, export, audit, chat
+from app.routers import session, knowledge_base, investigations, evidence, export, audit, chat, approval, auth
 
 app.include_router(session.router)
+app.include_router(auth.router)
 app.include_router(knowledge_base.router)
 app.include_router(investigations.router)
 app.include_router(evidence.router)
 app.include_router(export.router)
 app.include_router(audit.router)
 app.include_router(chat.router)
+app.include_router(approval.router)
+
 

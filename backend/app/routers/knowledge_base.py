@@ -36,9 +36,17 @@ from app.models.ingestion import (
     GraphEdgeCreate,
     GraphResponse,
 )
-from app.deps import get_current_session
+from app.deps import Principal, get_current_session, require_permission
 
 router = APIRouter(prefix="/api/v1/knowledge-base", tags=["knowledge-base"])
+
+
+def _assert_document_scope(doc: Document, principal: Principal, session: SessionModel) -> None:
+    """Enforce owner and department scope before returning document metadata/content."""
+    if doc.session_id and doc.session_id != session.id:
+        raise HTTPException(status_code=403, detail="Document is outside this session scope")
+    if doc.department_scope and doc.department_scope.strip().lower() != principal.department.strip().lower():
+        raise HTTPException(status_code=403, detail="Document is outside this department scope")
 
 
 @router.post("/documents", response_model=DocumentUploadResponse, status_code=202)
@@ -48,6 +56,7 @@ async def upload_document(
     equipment_ids: Optional[str] = Form(None),  # JSON string: '["P-102"]'
     department_scope: Optional[str] = Form(None),
     current_session: SessionModel = Depends(get_current_session),
+    principal: Principal = Depends(require_permission("document:upload")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -55,6 +64,10 @@ async def upload_document(
     Implements: FR-ING-1..6
     """
     import json
+
+    if department_scope and department_scope.strip().lower() != principal.department.strip().lower():
+        raise HTTPException(status_code=403, detail="Uploads must use the caller's department scope")
+    department_scope = principal.department
 
     # Parse equipment_ids from JSON string
     equip_ids = []
@@ -80,6 +93,7 @@ async def upload_document(
         pages=page_count,
         equipment_ids=equip_ids,
         department_scope=department_scope,
+        session_id=current_session.id,
         source_id=source_id,
     )
     db.add(doc)
@@ -98,7 +112,7 @@ async def upload_document(
             # Tag chunks with metadata (FR-ING-4)
             tagged_chunks = tag_chunks(
                 chunks, source_id, safe_filename,
-                document_type, equip_ids, department_scope,
+                document_type, equip_ids, department_scope, current_session.id,
             )
 
             # Generate embeddings (FR-ING-5)
@@ -136,6 +150,7 @@ async def upload_document(
 async def get_document(
     document_id: str,
     current_session: SessionModel = Depends(get_current_session),
+    principal: Principal = Depends(require_permission("document:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -146,6 +161,7 @@ async def get_document(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    _assert_document_scope(doc, principal, current_session)
 
     return DocumentDetailResponse(
         document_id=doc.id,
@@ -163,6 +179,7 @@ async def get_document(
 async def upload_dataset(
     file: UploadFile = File(...),
     current_session: SessionModel = Depends(get_current_session),
+    _: Principal = Depends(require_permission("document:upload")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -187,6 +204,7 @@ async def upload_dataset(
             row_count=result["row_count"],
             status="ready",
             table_name=result["table_name"],
+            session_id=current_session.id,
         )
         db.add(ds)
         await db.commit()
@@ -207,6 +225,7 @@ async def upload_dataset(
 @router.get("/summary", response_model=KnowledgeBaseSummary)
 async def get_summary(
     current_session: SessionModel = Depends(get_current_session),
+    _: Principal = Depends(require_permission("knowledge_base:query")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -250,6 +269,7 @@ async def get_summary(
 async def add_graph_node(
     body: GraphNodeCreate,
     current_session: SessionModel = Depends(get_current_session),
+    _: Principal = Depends(require_permission("knowledge_base:manage")),
 ):
     """Add or update an equipment node in the topological graph."""
     graph_store.add_node(
@@ -264,6 +284,7 @@ async def add_graph_node(
 async def add_graph_edge(
     body: GraphEdgeCreate,
     current_session: SessionModel = Depends(get_current_session),
+    _: Principal = Depends(require_permission("knowledge_base:manage")),
 ):
     """Add or update a directed relationship edge between equipment nodes."""
     graph_store.add_edge(
@@ -276,7 +297,10 @@ async def add_graph_edge(
 
 
 @router.get("/graph", response_model=GraphResponse)
-async def get_graph(current_session: SessionModel = Depends(get_current_session)):
+async def get_graph(
+    current_session: SessionModel = Depends(get_current_session),
+    _: Principal = Depends(require_permission("workspace:read")),
+):
     """Retrieve full equipment relationship graph."""
     return GraphResponse(
         nodes=graph_store.get_all_nodes(),
