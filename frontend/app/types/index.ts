@@ -36,6 +36,7 @@ export const ALL_AGENTS: AgentName[] = [
 // ─── Session ───────────────────────────────────────────────────────
 
 export interface Session {
+  roles?: string[];
   session_id: string;
   name: string;
   department: string;
@@ -409,6 +410,7 @@ export interface ArtifactItem {
 }
 
 export interface WorkbenchTask {
+  version: number;
   id: string;
   query: string;
   mode: TaskMode;

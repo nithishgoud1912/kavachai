@@ -12,20 +12,7 @@ interface PidRelationshipProps {
   bypassLoops?: BypassLoop[] | null;
 }
 
-const DEFAULT_NODE_INFO: Record<string, { name: string; role: string; spec: string; status: string }> = {
-  "TK-101": { name: "Crude Storage Tank", role: "Feed Supply", spec: "50k bbl · 1.2 bar", status: "Normal" },
-  "TK-101A": { name: "Crude Storage Tank A", role: "Feed Supply", spec: "50k bbl · 1.2 bar", status: "Normal" },
-  "DS-101": { name: "Electrostatic Desalter", role: "Pre-Treatment", spec: "3.8 bar · 99% Salt", status: "Normal" },
-  "STR-101": { name: "Suction Basket Strainer", role: "Filtration", spec: "Mesh 40 · DP 0.14 bar", status: "Normal" },
-  "P-102": { name: "Crude Charge Pump", role: "Target Asset", spec: "API 610 · 3.72 mm/s", status: "Attention" },
-  "P-102A": { name: "Charge Pump A", role: "Target Asset", spec: "API 610 · 3.72 mm/s", status: "Attention" },
-  "E-103": { name: "Pre-Heat Exchangers", role: "Heat Recovery", spec: "Shell & Tube · 165°C", status: "Normal" },
-  "E-103A-D": { name: "Pre-Heat Bank A-D", role: "Heat Recovery", spec: "Shell & Tube · 165°C", status: "Normal" },
-  "V-204": { name: "Flow Control Valve", role: "Modulation", spec: "Globe · Mod 68%", status: "Normal" },
-  "FCV-204": { name: "Flow Control Valve", role: "Modulation", spec: "Globe · Mod 68%", status: "Normal" },
-  "F-101": { name: "Fired Charge Heater", role: "Thermal Furnace", spec: "Duty 28MW · 360°C", status: "Normal" },
-  "R-101": { name: "Hydrotreater Reactor", role: "Desulfurization", spec: "Fixed Bed · 45 bar", status: "Normal" },
-};
+const DEFAULT_NODE_INFO: Record<string, { name: string; role: string; spec: string; status: string }> = {};
 
 export default function PidRelationship({
   components,
@@ -35,10 +22,9 @@ export default function PidRelationship({
   processTopology,
   bypassLoops,
 }: PidRelationshipProps) {
-  if (!components || components.length === 0) return null;
-
-  const effectiveHighlighted = highlighted || "P-102";
+  const effectiveHighlighted = highlighted || components?.[0] || "";
   const [selectedNode, setSelectedNode] = useState<string>(effectiveHighlighted);
+  if (!components || components.length === 0) return null;
 
   // Merge topology metadata
   const topologyMap = new Map<string, { name: string; role: string; spec: string; status: string }>();
@@ -60,7 +46,7 @@ export default function PidRelationship({
         name: `Asset ${tag}`,
         role: "Process Node",
         spec: "Industrial Spec",
-        status: "Normal",
+        status: "Unknown",
       }
     );
   };

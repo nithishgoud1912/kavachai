@@ -113,18 +113,7 @@ Decompose this query into sub-tasks. Respond with JSON only."""
 
         return InvestigationPlan(sub_tasks=sub_tasks, is_in_scope=is_in_scope)
 
-    except json.JSONDecodeError:
-        # If LLM returns invalid JSON, create rich sub-tasks based on query
-        import re
-        equip_match = re.findall(r"\b([A-Z]-\d{2,4})\b", query)
-        equip = equip_match[0] if equip_match else "P-102"
-
-        fallback_tasks = [
-            SubTask(agent=AgentName.DOCUMENT_AGENT, goal=f"Search for documents and inspection logs relevant to: {query}"),
-            SubTask(agent=AgentName.DATA_AGENT, goal=f"Analyze operational telemetry and trends for {equip}"),
-            SubTask(agent=AgentName.VISION_AGENT, goal=f"Visually inspect P&ID process schematic and connectivity for {equip}"),
-            SubTask(agent=AgentName.RAG_AGENT, goal=f"Retrieve specifications and operating thresholds for {equip}"),
-        ]
-        return InvestigationPlan(sub_tasks=fallback_tasks, is_in_scope=True)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Planner returned invalid JSON") from exc
     except Exception as e:
         raise RuntimeError(f"Planner failed: {type(e).__name__}: {e}")

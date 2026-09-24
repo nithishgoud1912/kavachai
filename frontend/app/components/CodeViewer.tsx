@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { ArtifactItem } from "@/app/types";
 import { downloadArtifact } from "@/app/services/fileDownload";
@@ -16,46 +16,17 @@ export default function CodeViewer({ artifact, className = "" }: CodeViewerProps
   const router = useRouter();
   const [copied, setCopied] = useState(false);
 
-  const samplePython = `"""
-MRPL Air-Gapped Industrial Analytics
-Asset: P-204 Crude Charge Pump
-Calculation: Characteristic Bearing Fault Frequencies (SKF 6318)
-"""
-
-import numpy as np
-
-RPM = 2980.0
-SHAFT_HZ = RPM / 60.0  # 49.67 Hz
-
-# Bearing Geometry Constants (SKF 6318)
-N_BALLS = 8
-BALL_DIA_MM = 30.0
-PITCH_DIA_MM = 140.0
-CONTACT_ANGLE_RAD = 0.0
-
-cos_theta = np.cos(CONTACT_ANGLE_RAD)
-gamma = (BALL_DIA_MM / PITCH_DIA_MM) * cos_theta
-
-# ISO Characteristic Formulas
-BPFO = (N_BALLS / 2.0) * SHAFT_HZ * (1.0 - gamma)
-BPFI = (N_BALLS / 2.0) * SHAFT_HZ * (1.0 + gamma)
-BSF  = (PITCH_DIA_MM / (2.0 * BALL_DIA_MM)) * SHAFT_HZ * (1.0 - gamma**2)
-FTF  = 0.5 * SHAFT_HZ * (1.0 - gamma)
-
-print(f"Calculated BPFO: {BPFO:.2f} Hz (Matches 142.4 Hz sensor spike)")
-print(f"Calculated BPFI: {BPFI:.2f} Hz")
-print(f"Calculated BSF:  {BSF:.2f} Hz")
-print(f"Calculated FTF:  {FTF:.2f} Hz")
-
-# Severity Check
-OVERALL_RMS_MM_S = 9.8
-if OVERALL_RMS_MM_S > 4.5:
-    print("STATUS: DANGER - ISO 10816 Zone D exceeded. Switch pump immediately.")
-`;
-
-  const code = artifact.metadata?.summary && artifact.metadata.summary.includes("import")
-    ? artifact.metadata.summary
-    : samplePython;
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    fetch(artifact.download_url, { credentials: "include", cache: "no-store" }).then(async response => {
+      if (!response.ok) throw new Error("Artifact unavailable");
+      const text = await response.text();
+      if (active) setCode(text);
+    }).catch(error => { if (active) setError(String(error)); });
+    return () => { active = false; };
+  }, [artifact.download_url]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
@@ -71,7 +42,7 @@ if OVERALL_RMS_MM_S > 4.5:
 
   return (
     <div className={`space-y-4 max-w-5xl mx-auto ${className}`}>
-      {/* Top Bar Actions */}
+      {error && <p role="alert">{error}</p>}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-surface border border-border rounded-2xl shadow-xs">
         <div className="flex items-center gap-3">
           <span className="text-3xl">💻</span>

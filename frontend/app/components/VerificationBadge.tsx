@@ -35,7 +35,7 @@ export default function VerificationBadge({
   status,
   size = "md",
 }: VerificationBadgeProps) {
-  const config = BADGE_CONFIG[status] || BADGE_CONFIG.verified;
+  const config = BADGE_CONFIG[status] || BADGE_CONFIG.unverified;
   const sizeClasses = size === "sm" ? "text-xs px-2.5 py-1" : "text-sm px-3.5 py-1.5";
 
   return (

@@ -17,8 +17,6 @@ export function useKnowledgeBase(): KnowledgeBaseState {
   const [error, setError] = useState<string | null>(null);
 
   const fetchSummary = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const data = await getKnowledgeBaseSummary();
       setSummary(data);
@@ -30,7 +28,8 @@ export function useKnowledgeBase(): KnowledgeBaseState {
   }, []);
 
   useEffect(() => {
-    fetchSummary();
+    const timer = setTimeout(() => void fetchSummary(), 0);
+    return () => clearTimeout(timer);
   }, [fetchSummary]);
 
   return { summary, loading, error, refresh: fetchSummary };

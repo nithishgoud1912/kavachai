@@ -68,7 +68,7 @@ class TabularStore:
 
         conn = self._get_connection()
         try:
-            df.to_sql(table_name, conn, if_exists="replace", index=False)
+            df.to_sql(table_name, conn, if_exists="fail", index=False)
             return {
                 "table_name": table_name,
                 "row_count": len(df),

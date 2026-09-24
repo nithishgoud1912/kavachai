@@ -39,9 +39,13 @@ export function useSession(): SessionState {
             sessionStorage.removeItem(SESSION_ID_KEY);
             setSession(null);
           }
+        } else {
+          const verified = await getCurrentSession();
+          setSession(verified);
+          sessionStorage.setItem(STORAGE_KEY, JSON.stringify(verified));
         }
       } catch {
-        // Ignore parsing errors
+        // Session cookie missing or expired
       } finally {
         setIsLoading(false);
       }

@@ -140,13 +140,16 @@ def _build_result(draft_findings: DraftFindings, ver_data: dict) -> Verification
     supported_count = 0
 
     for df in draft_findings.findings:
-        status_str = ver_map.get(df.id, "partially_supported")
+        status_str = ver_map.get(df.id, "unsupported")
 
         # Validate status
         try:
             status = VerificationStatus(status_str)
         except ValueError:
-            status = VerificationStatus.PARTIALLY_SUPPORTED
+            status = VerificationStatus.UNSUPPORTED
+
+        if not df.evidence:
+            status = VerificationStatus.UNSUPPORTED
 
         # FR-VER-2: Remove or flag unsupported findings
         if status == VerificationStatus.UNSUPPORTED:
@@ -171,7 +174,7 @@ def _build_result(draft_findings: DraftFindings, ver_data: dict) -> Verification
     overall_confidence = max(0, min(100, int(overall_confidence)))
 
     # FR-VER-4: If zero supported findings → insufficient_evidence pathway
-    overall_status = ver_data.get("overall_status", "partially_verified")
+    overall_status = "verified" if supported_count == len(verified_findings) and supported_count else "partially_verified"
 
     if supported_count == 0:
         overall_status = "unverified"
@@ -192,12 +195,12 @@ def _fallback_verification(draft_findings: DraftFindings) -> VerificationResult:
             id=df.id,
             title=df.title,
             detail=df.detail,
-            verification_status=VerificationStatus.PARTIALLY_SUPPORTED,
+            verification_status=VerificationStatus.UNSUPPORTED,
             evidence=df.evidence,
         ))
 
     return VerificationResult(
         findings=verified_findings,
-        overall_confidence=50,
-        overall_status="partially_verified",
+        overall_confidence=0,
+        overall_status="unverified",
     )

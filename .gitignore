@@ -92,3 +92,11 @@ yarn-error.log*
 Thumbs.db
 
 .agents/
+
+# Confidential runtime state is never source code. Existing tracked history requires a separate migration.
+/data/
+/backend/data/
+**/checkpoints.db*
+**/kavachai_checkpoints.db*
+/frontend/frontend/
+reports/

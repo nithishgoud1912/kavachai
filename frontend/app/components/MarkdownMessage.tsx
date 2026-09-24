@@ -1,14 +1,19 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { marked } from "marked";
+import { Marked } from "marked";
 import MermaidDiagram from "@/app/components/MermaidDiagram";
 
-// Configure marked for GitHub-flavored markdown with line breaks
-marked.setOptions({
-  gfm: true,
-  breaks: true,
-});
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+// Raw HTML and remotely loaded images are never rendered from model/document text.
+const marked = new Marked({ gfm: true, breaks: true, renderer: {
+  html({ text }) { return escapeHtml(text); },
+  image({ text }) { return escapeHtml(text); },
+  link({ href, text }) {
+    if (!href.startsWith("/") || href.startsWith("//") || href.includes("\\")) return escapeHtml(text);
+    return `<a href="${escapeHtml(href)}">${escapeHtml(text)}</a>`;
+  },
+} });
 
 interface MarkdownMessageProps {
   content: string;
@@ -124,7 +129,7 @@ export function renderMarkdown(text: string): string {
   try {
     return marked.parse(text) as string;
   } catch {
-    return text.replace(/\n/g, "<br/>");
+    return escapeHtml(text).replace(/\n/g, "<br/>");
   }
 }
 

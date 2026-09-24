@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.sql_models import AuditEvent
@@ -28,6 +28,11 @@ async def append_security_event(
     detail: dict[str, Any] | None = None,
 ) -> AuditEvent:
     """Append, never update, a security event and link it to its predecessor."""
+    # SQLite serializes writers before reading the predecessor, including across workers.
+    await db.commit()
+    await db.execute(text("BEGIN IMMEDIATE"))
+    if session_id:
+        session_id = hashlib.sha256(session_id.encode()).hexdigest()
     previous = await db.execute(select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(1))
     previous_hash = previous.scalar_one_or_none()
     now = datetime.now(timezone.utc)

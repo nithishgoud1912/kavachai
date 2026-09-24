@@ -73,7 +73,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
       const body = await response.json();
       apiError = body.error || {
         code: "UNKNOWN_ERROR",
-        message: ERROR_MESSAGES[response.status] || "An unexpected error occurred.",
+        message: typeof body.detail === "string" ? body.detail : ERROR_MESSAGES[response.status] || "An unexpected error occurred.",
         status: response.status,
       };
     } catch {
@@ -223,14 +223,14 @@ export async function uploadInvestigationFiles(
     body: formData,
     credentials: "include",
   });
-  const data = await handleResponse<{ files?: any[]; uploaded?: any[]; total_files: number }>(res);
+  const data = await handleResponse<{ files?: AttachmentItem[]; uploaded?: AttachmentItem[]; total_files: number }>(res);
   return (data.files || data.uploaded || []) as AttachmentItem[];
 }
 
 export async function createInvestigation(
   query: string,
   sessionId: string,
-  attachments: any[] = []
+  attachments: AttachmentItem[] = []
 ): Promise<Investigation> {
   const res = await fetch(`${API_BASE}/investigations`, {
     method: "POST",
@@ -488,12 +488,13 @@ export async function getTask(id: string): Promise<WorkbenchTask> {
 export async function submitTaskReview(
   id: string,
   action: "approve" | "revise" | "reject",
-  comments?: string
+  comments?: string,
+  version?: number
 ): Promise<WorkbenchTask> {
   const res = await fetch(`${API_BASE}/tasks/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-    body: JSON.stringify({ action, comments }),
+    body: JSON.stringify({ action, comments, version }),
     credentials: "include",
   });
   return handleResponse<WorkbenchTask>(res);

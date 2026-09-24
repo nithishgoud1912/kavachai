@@ -1,17 +1,3 @@
-import { NextResponse } from "next/server";
-import { proxyOrFallback } from "../../proxy";
+import { proxyToBackend } from "@/app/api/v1/proxy";
 
-export async function POST(req: Request) {
-  return proxyOrFallback("/investigations/upload", req, () => {
-    return NextResponse.json(
-      {
-        error: {
-          code: "SERVICE_UNAVAILABLE",
-          message: "Backend is unreachable for file uploads.",
-          status: 503,
-        },
-      },
-      { status: 503 }
-    );
-  });
-}
+export async function POST(req: Request) { return proxyToBackend(req); }

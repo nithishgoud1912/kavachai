@@ -11,7 +11,8 @@ from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy import select, or_
 from app.db.database import async_session
-from app.db.sql_models import Dataset
+from app.db.sql_models import Dataset, Session
+from app.access import authorized_sources, assert_owner
 from app.agents import document_agent, data_agent
 
 
@@ -30,9 +31,12 @@ async def search_local_documents(query: str, config: RunnableConfig) -> str:
         Formatted string of matching document chunks with source citations.
     """
     session_id = config.get("configurable", {}).get("session_id")
+    async with async_session() as db:
+        session = await db.get(Session, session_id) if session_id else None
+        sources = await authorized_sources(session, db) if session else []
     chunks = await document_agent.retrieve(
         sub_task_goal=query,
-        filters={"session_id": session_id} if session_id else None,
+        filters={"source_ids": sources},
         n_results=5,
     )
     if not chunks:
@@ -63,22 +67,16 @@ async def analyze_operational_data(
     """
     session_id = config.get("configurable", {}).get("session_id")
 
-    # Verify dataset exists and belongs to this session (or is shared/corpus)
+    if not session_id: return "Error: Authenticated session required"
     async with async_session() as db:
-        query = select(Dataset).where(
-            Dataset.id == dataset_id,
-            or_(
-                Dataset.session_id == session_id,
-                Dataset.session_id.is_(None),
-                Dataset.session_id == "",
-            ),
-        )
-        res = await db.execute(query)
-        dataset = res.scalar_one_or_none()
-        if not dataset:
-            return (
-                f"Error: Dataset '{dataset_id}' not found or unauthorized for this session."
-            )
+        session = await db.get(Session, session_id)
+        dataset = await db.get(Dataset, dataset_id)
+        if not session or session.is_revoked:
+            return "Error: Authenticated session required"
+        try:
+            await assert_owner(dataset, session, db, shared=True)
+        except Exception:
+            return f"Error: Dataset '{dataset_id}' not found or unauthorized for this session."
 
     result = data_agent.analyze(
         metric=metric, equipment_id=equipment_id, dataset_id=dataset_id
@@ -89,7 +87,7 @@ async def analyze_operational_data(
         )
     return (
         f"Equipment: {equipment_id}, Metric: {metric}\n"
-        f"Trend: {result.trend.value}, Change: {result.pct_change:+.1f}%\n"
+        f"Trend: {result.trend.value}, Change: {result.pct_change}%\n"
         f"Points Sampled: {len(result.data_points)}\n"
         f"Breached Threshold: {result.threshold_breach}"
     )

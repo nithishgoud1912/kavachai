@@ -20,6 +20,7 @@ class SessionResponse(BaseModel):
     department: str
     issued_at: str
     expires_at: Optional[str] = None
+    roles: list[str] = []
 
 
 class SessionRevokeRequest(BaseModel):

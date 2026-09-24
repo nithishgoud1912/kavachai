@@ -16,7 +16,7 @@ from app.agents.base import TrendDirection
 from app.db.tabular_store import tabular_store
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def setup_test_dataset():
     """Seed test dataset into tabular_store."""
     df = pd.DataFrame([

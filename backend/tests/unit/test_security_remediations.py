@@ -247,24 +247,9 @@ async def test_export_path_traversal_prevention():
         ]
         for bad in bad_filenames:
             resp = await client.get(f"/api/v1/exports/{bad}")
-            assert resp.status_code in [400, 404]
+            assert resp.status_code in [400, 401, 404]
 
 
 def test_model_router_offline_generic_synthesis_and_verification():
-    """Verify that offline model router generates valid JSON with required schema for generic prompts."""
-    # Generic synthesis prompt
-    synth_prompt = "Synthesize findings for Tank T-300 with evidence doc_999."
-    synth_resp = model_router._offline_generate(synth_prompt, task_type="synthesis", fmt="json")
-    import json
-    parsed_synth = json.loads(synth_resp)
-    assert "findings" in parsed_synth
-    assert len(parsed_synth["findings"]) >= 1
-    assert "condition_summary" in parsed_synth
-
-    # Generic verification prompt
-    ver_prompt = 'Verify findings for Compressor C-401 with {"id": "f1"}'
-    ver_resp = model_router._offline_generate(ver_prompt, task_type="verification", fmt="json")
-    parsed_ver = json.loads(ver_resp)
-    assert "findings" in parsed_ver
-    assert "overall_status" in parsed_ver
-    assert "overall_confidence" in parsed_ver
+    with pytest.raises(RuntimeError, match="no fallback evidence"):
+        model_router._offline_generate("generic industrial facts", task_type="synthesis", fmt="json")

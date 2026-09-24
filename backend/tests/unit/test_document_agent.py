@@ -1,50 +1,19 @@
-"""
-KavachAI — Unit Tests: Document Agent
-Implements: Phase 4 DoD, FR-DOC-1..3, API_Reference.md §8.2
-
-Verifies:
-- Retrieval against P-102 corpus returns inspection report chunks
-- Chunks have valid source_id, page number, score, and text
-"""
-
+"""Retrieval policy at the embedding/vector service boundary."""
 import pytest
+from unittest.mock import AsyncMock, patch
 from app.agents import document_agent
 
+@pytest.mark.asyncio
+async def test_document_agent_filters_identity_and_relevance():
+    results=[dict(chunk_text='Relevant inspection',source_id='allowed',page=2,score=.9),
+             dict(chunk_text='Private',source_id='forbidden',page=1,score=.99),
+             dict(chunk_text='Unrelated',source_id='allowed',page=1,score=.01)]
+    with patch.object(document_agent.model_router,'embed',AsyncMock(return_value=[[.1]*768])), patch.object(document_agent.vector_store,'query',return_value=results):
+        chunks=await document_agent.retrieve('inspection',{'source_ids':['allowed']})
+    assert len(chunks)==1 and chunks[0].page==2 and chunks[0].source_id=='allowed'
 
 @pytest.mark.asyncio
-async def test_document_agent_retrieves_p102_chunks():
-    """Test retrieving inspection reports for P-102."""
-    chunks = await document_agent.retrieve(
-        sub_task_goal="Find inspection reports mentioning P-102",
-        filters={"equipment_ids": ["P-102"]},
-        n_results=3,
-    )
-
-    assert len(chunks) > 0
-    for chunk in chunks:
-        assert chunk.source_id, "Each chunk must have a non-empty source_id"
-        assert chunk.page is not None
-        assert chunk.score > 0
-        assert len(chunk.chunk_text) > 0
-
-
-@pytest.mark.asyncio
-async def test_document_agent_fire_sop_retrieval():
-    """Test retrieving safety evacuation SOP chunks (data-dependent)."""
-    chunks = await document_agent.retrieve(
-        sub_task_goal="fire emergency evacuation procedure",
-        filters={},  # Removed department_scope filter — may not exist in test ChromaDB
-        n_results=2,
-    )
-
-    # This test is data-dependent — ChromaDB returns best-match chunks even if
-    # no fire/evacuation documents exist. Skip if no relevant content found.
-    if len(chunks) == 0:
-        pytest.skip("No documents found in ChromaDB — expected in dev")
-
-    has_fire_content = any(
-        "evacuat" in c.chunk_text.lower() or "fire" in c.chunk_text.lower()
-        for c in chunks
-    )
-    if not has_fire_content:
-        pytest.skip("No fire/evacuation SOP documents ingested in ChromaDB yet")
+async def test_missing_scope_never_searches_global_corpus():
+    with patch.object(document_agent.model_router,'embed',AsyncMock()) as embed:
+        assert await document_agent.retrieve('anything',{})==[]
+        embed.assert_not_called()

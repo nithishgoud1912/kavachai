@@ -24,42 +24,10 @@ export default function AuditLogPage() {
         const data = await getAuditLog(50, 0);
         setEntries(data.entries);
         setTotal(data.total);
-      } catch (err: any) {
-        // Fallback demo entries if backend has no entries yet
-        const demo: AuditEntry[] = [
-          {
-            investigation_id: "task-mrpl-101",
-            user: "operations_lead",
-            department: "OPERATIONS",
-            query: "Draft approval note for P-204 Crude Pump vibration anomaly",
-            agents_invoked: ["planner", "rag_agent", "data_agent", "vision_agent", "verification_agent"],
-            verification_status: "verified",
-            confidence: 0.96,
-            timestamp: new Date().toISOString(),
-          },
-          {
-            investigation_id: "task-mrpl-102",
-            user: "maint_eng",
-            department: "MAINTENANCE",
-            query: "Calculate bearing defect harmonics for SKF 6318 in sandbox",
-            agents_invoked: ["planner", "data_agent", "verification_agent"],
-            verification_status: "verified",
-            confidence: 0.98,
-            timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-          },
-          {
-            investigation_id: "task-mrpl-103",
-            user: "safety_reviewer",
-            department: "SAFETY",
-            query: "P&ID bypass line isolation verification for CDU-II",
-            agents_invoked: ["planner", "vision_agent", "verification_agent"],
-            verification_status: "partially_verified",
-            confidence: 0.84,
-            timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-          },
-        ];
-        setEntries(demo);
-        setTotal(demo.length);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Audit records unavailable");
+        setEntries([]);
+        setTotal(0);
       } finally {
         setLoading(false);
       }
@@ -71,19 +39,19 @@ export default function AuditLogPage() {
   const filtered = entries.filter((e) => deptFilter === "all" || e.department === deptFilter);
 
   const handleExport = () => {
-    downloadJson("MRPL_Sovereign_WORM_Audit_Log.json", {
-      type: "WORM_AUDIT_LOG_EXPORT",
+    downloadJson("local-audit-records.json", {
+      type: "LOCAL_AUDIT_LOG_EXPORT",
       total_records: filtered.length,
       exported_at: new Date().toISOString(),
-      compliance: "FR-AUD-1 / FR-AUD-2 WORM Compliant (Append-Only)",
+      compliance: "Application audit records; not independently immutable storage",
       records: filtered,
     });
   };
 
   return (
     <AppShell
-      title="WORM Audit Trail"
-      subtitle="Append-Only Immutable Compliance Log"
+      title="Local Audit Trail"
+      subtitle="Application and security events"
       breadcrumbs={[
         { label: "Workspace", href: "/workspace" },
         { label: "Audit Trail" },
@@ -98,7 +66,7 @@ export default function AuditLogPage() {
                 Statutory Regulatory & Operational Audit Trail
               </h2>
               <p className="text-xs text-text-3 font-mono">
-                Immutable WORM (Write-Once-Read-Many) log. By design, NO edit or delete endpoints exist.
+                Application audit records. Off-host immutable retention must be configured separately.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -112,6 +80,13 @@ export default function AuditLogPage() {
             </div>
           </div>
         </div>
+
+        {error && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center gap-3 text-xs font-mono text-amber-700">
+            <span className="text-base">🛡️</span>
+            <span>{error}</span>
+          </div>
+        )}
 
         {/* Filter Bar */}
         <div className="flex items-center justify-between p-4 bg-surface border border-border rounded-2xl shadow-xs text-xs font-mono">

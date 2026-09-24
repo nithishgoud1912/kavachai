@@ -15,19 +15,20 @@ export function useNetworkMonitor() {
         getNetworkStatus().catch(() => null),
         getNetworkConnections().catch(() => []),
       ]);
-      if (r) setReport(r);
+      setReport(r);
       if (c) setConnections(c);
     } catch {
-      // Keep existing state
+      setReport(null);
+      setConnections([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchStatus();
+    const initial = setTimeout(fetchStatus, 0);
     const interval = setInterval(fetchStatus, 5000);
-    return () => clearInterval(interval);
+    return () => { clearTimeout(initial); clearInterval(interval); };
   }, [fetchStatus]);
 
   return { report, connections, loading, reload: fetchStatus };

@@ -3,7 +3,7 @@ KavachAI — Chat Pydantic Schemas
 Request/response models for multi-turn conversation endpoints.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 
@@ -20,16 +20,16 @@ class AttachmentItem(BaseModel):
 
 class SendMessageRequest(BaseModel):
     """POST /conversations/{id}/messages request body."""
-    content: str
-    attachments: List[AttachmentItem] = []
+    content: str = Field(min_length=1, max_length=50000)
+    attachments: List[AttachmentItem] = Field(default_factory=list, max_length=20)
 
 
 class ChatMessageResponse(BaseModel):
     """Single message in a conversation response."""
     id: str
     role: str  # "user" | "assistant" | "system"
-    content: str
-    attachments: List[AttachmentItem] = []
+    content: str = Field(min_length=1, max_length=50000)
+    attachments: List[AttachmentItem] = Field(default_factory=list, max_length=20)
     created_at: str
 
 

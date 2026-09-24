@@ -1,13 +1,3 @@
-import { NextResponse } from "next/server";
-import { proxyOrFallback } from "../../proxy";
-import { mockEvidenceMap } from "../../mock-data";
+import { proxyToBackend } from "@/app/api/v1/proxy";
 
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  return proxyOrFallback(`/evidence/${id}`, req, () => {
-    return NextResponse.json({ detail: "Evidence not found" }, { status: 404 });
-  });
-}
+export async function GET(req: Request) { return proxyToBackend(req); }

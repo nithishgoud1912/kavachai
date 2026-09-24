@@ -7,6 +7,8 @@ proper setup and teardown of the checkpoint database.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
+from app.config import settings
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 # Module-level reference for runtime access outside lifespan
@@ -31,7 +33,7 @@ async def init_checkpointer():
     - Chat conversation history with tool call state
     """
     global checkpointer_instance
-    async with AsyncSqliteSaver.from_conn_string("kavachai_checkpoints.db") as saver:
+    async with AsyncSqliteSaver.from_conn_string(str(Path(settings.SQLITE_DB_PATH).resolve().parent / "checkpoints.db")) as saver:
         await saver.setup()  # Ensures checkpoint tables exist
         checkpointer_instance = saver
         yield saver

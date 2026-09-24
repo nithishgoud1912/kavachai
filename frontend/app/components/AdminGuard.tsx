@@ -12,11 +12,7 @@ interface AdminGuardProps {
 export default function AdminGuard({ children, fallback }: AdminGuardProps) {
   const { session } = useSession();
 
-  // Admin access granted to IT_SECURITY or users with "admin" in name
-  const isAdmin =
-    session?.department === "IT_SECURITY" ||
-    session?.department === "ADMIN" ||
-    (session?.name && session.name.toLowerCase().includes("admin"));
+  const isAdmin = session?.roles?.includes("admin") === true;
 
   if (isAdmin) {
     return <>{children}</>;
@@ -40,7 +36,7 @@ export default function AdminGuard({ children, fallback }: AdminGuardProps) {
           href="/"
           className="px-4 py-2 text-xs font-medium rounded-lg bg-surface border border-border text-text hover:bg-surface-2 transition-colors"
         >
-          Switch to Admin Demo Role
+          Sign in with an administrator account
         </Link>
         <Link
           href="/workspace"

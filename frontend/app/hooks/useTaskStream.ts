@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { connectToTaskStream } from "@/app/services/sse";
 import type { SubTaskItem, ToolCallEvent, ArtifactItem, EvidenceReference } from "@/app/types";
 
@@ -19,11 +19,13 @@ export function useTaskStream(taskId: string | null, options?: UseTaskStreamOpti
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const optionsRef = useRef(options);
+  useEffect(() => { optionsRef.current = options; }, [options]);
   useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) { setPlan([]); setToolCalls([]); setReasoning(""); setArtifacts([]); setCitations([]); setHitlPrompt(null); setIsStreaming(true); setError(null); } });
     if (!taskId) return;
 
-    setIsStreaming(true);
-    setError(null);
 
     const conn = connectToTaskStream(taskId, {
       onPlanCreated: (newPlan) => {
@@ -83,11 +85,11 @@ export function useTaskStream(taskId: string | null, options?: UseTaskStreamOpti
       },
       onHitlRequired: (data) => {
         setHitlPrompt(data.prompt || "Human review requested");
-        options?.onHitlRequired?.();
+        optionsRef.current?.onHitlRequired?.();
       },
       onTaskCompleted: () => {
         setIsStreaming(false);
-        options?.onTaskCompleted?.();
+        optionsRef.current?.onTaskCompleted?.();
       },
       onTaskFailed: ({ error: err }) => {
         setIsStreaming(false);
@@ -99,6 +101,7 @@ export function useTaskStream(taskId: string | null, options?: UseTaskStreamOpti
     });
 
     return () => {
+      active = false;
       conn.close();
     };
   }, [taskId]);

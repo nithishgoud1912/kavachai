@@ -41,8 +41,8 @@ export default function TaskComposer({
     try {
       const task = await createTask(query.trim(), mode, deliverableType, attachments);
       router.push(`/task/${task.id}`);
-    } catch (err: any) {
-      setError(err.message || "Failed to initiate sovereign agentic task");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to initiate sovereign agentic task");
       setSubmitting(false);
     }
   };

@@ -13,9 +13,10 @@ from typing import List, Dict, Optional, Any
 class GraphStore:
     """In-process equipment relationship graph (NetworkX)."""
 
-    def __init__(self):
+    def __init__(self, seed_demo=False):
         self._graph = nx.DiGraph()
-        self._load_demo_graph()
+        if seed_demo:
+            self._load_demo_graph()
 
     def _load_demo_graph(self):
         """

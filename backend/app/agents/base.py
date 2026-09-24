@@ -71,7 +71,7 @@ class TrendDirection(str, Enum):
 class DataAnalysisResult(BaseModel):
     """FR-DAT-2: All fields computed by pandas, NEVER by LLM."""
     trend: TrendDirection
-    pct_change: float
+    pct_change: Optional[float]
     data_points: List[DataPoint]
     threshold_breach: Optional[bool] = None
 

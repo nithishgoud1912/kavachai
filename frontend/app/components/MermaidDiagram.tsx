@@ -14,7 +14,7 @@ function initMermaid() {
   if (mermaidInitialized || typeof window === "undefined") return;
   mermaid.initialize({
     startOnLoad: false,
-    securityLevel: "loose",
+    securityLevel: "strict",
     theme: "base",
     themeVariables: {
       primaryColor: "#f5efe6",
@@ -34,7 +34,7 @@ function initMermaid() {
       edgeLabelBackground: "#ffffff",
     },
     flowchart: {
-      htmlLabels: true,
+      htmlLabels: false,
       curve: "basis",
     },
   });
@@ -58,7 +58,7 @@ function sanitizeMermaidCode(raw: string): string {
 
   // Clean lines
   const lines = code.split("\n").map((line) => {
-    let l = line.trim();
+    const l = line.trim();
     if (!l) return "";
 
     // If line is an arrow definition commented out with // e.g. "// A --> B"
@@ -137,10 +137,10 @@ export default function MermaidDiagram({ code, className = "" }: MermaidDiagramP
         if (!isCancelled) {
           setSvg(renderedSvg);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (!isCancelled) {
           console.warn("[MermaidDiagram] Render error:", err);
-          setError(err?.message || "Invalid Mermaid diagram syntax");
+          setError(err instanceof Error ? err.message : "Invalid Mermaid diagram syntax");
           // Remove any stray error elements inserted into DOM by mermaid
           const strayError = document.getElementById(`d${diagramId}`);
           if (strayError) strayError.remove();

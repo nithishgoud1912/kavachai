@@ -78,6 +78,42 @@ DEMO_USERS = [
         "mfa_enabled": False,
         "mfa_secret": "PBZXG5DJONSWG4TF",
     },
+    {
+        "username": "operations_lead",
+        "password": "KavachAI_Analyst_2026!",
+        "department": "OPERATIONS",
+        "clearance": "confidential",
+        "roles": [Role.WORKBENCH_USER.value],
+        "mfa_enabled": False,
+        "mfa_secret": "MZXW6YTBOJUW4ZY2",
+    },
+    {
+        "username": "maint_eng",
+        "password": "KavachAI_Analyst_2026!",
+        "department": "MAINTENANCE",
+        "clearance": "confidential",
+        "roles": [Role.WORKBENCH_USER.value],
+        "mfa_enabled": False,
+        "mfa_secret": "MZXW6YTBOJUW4ZY2",
+    },
+    {
+        "username": "safety_reviewer",
+        "password": "KavachAI_Reviewer_2026!",
+        "department": "HSE",
+        "clearance": "restricted",
+        "roles": [Role.REVIEWER_APPROVER.value],
+        "mfa_enabled": False,
+        "mfa_secret": "OBXXE2LTMVRXEZLU",
+    },
+    {
+        "username": "process_eng",
+        "password": "KavachAI_KbManager_2026!",
+        "department": "REFINERY",
+        "clearance": "restricted",
+        "roles": [Role.KNOWLEDGE_BASE_MANAGER.value],
+        "mfa_enabled": False,
+        "mfa_secret": "NB2HI4DTHIXS653X",
+    },
 ]
 
 
@@ -98,9 +134,9 @@ async def seed():
                 existing.locked_until = None
                 existing.is_active = True
                 # Remove existing roles
-                old_roles = (await db.execute(select(UserRole).where(UserRole.user_id == existing.id))).scalars().all()
-                for r in old_roles:
-                    await db.delete(r)
+                from sqlalchemy import delete
+                await db.execute(delete(UserRole).where(UserRole.user_id == existing.id))
+                await db.flush()
                 user_id = existing.id
             else:
                 user = User(
@@ -118,6 +154,7 @@ async def seed():
 
             for role in u_data["roles"]:
                 db.add(UserRole(user_id=user_id, role=role, granted_by="seed_script"))
+            await db.flush()
 
         await db.commit()
     print("Successfully seeded all 5 canonical demo users:")

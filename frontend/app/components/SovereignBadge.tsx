@@ -25,18 +25,18 @@ export default function SovereignBadge({
           ? "px-4 py-1.5 text-sm"
           : "px-3 py-1 text-xs"
       } ${className}`}
-      title="Verified On-Premise Air-Gapped Environment (MRPL Infrastructure)"
+      title="Configured for local inference; deployment air-gap requires independent verification"
     >
       <span className="relative flex h-2 w-2">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
         <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
       </span>
       <div className="flex items-center gap-1.5">
-        <span className="font-semibold tracking-wide">100% On-Premise</span>
+        <span className="font-semibold tracking-wide">Local Workbench</span>
         {showSubtitle && (
           <>
             <span className="text-accent/40">|</span>
-            <span className="font-normal opacity-90">No Data Leaves This Network</span>
+            <span className="font-normal opacity-90">Deployment verification required</span>
           </>
         )}
       </div>

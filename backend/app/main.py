@@ -19,18 +19,38 @@ from app.langgraph.graphs.chat_graph import build_chat_graph
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle — initialize DB, egress audit, LangGraph on start."""
+    if settings.ENVIRONMENT == "production" and settings.ALLOW_DEMO_SESSIONS:
+        raise RuntimeError("Production cannot enable unauthenticated demo sessions")
     # 1. Existing DB init preserved
     await init_db()
 
+    # Interrupted jobs are explicitly failed, never silently left running.
+    from app.db.database import async_session
+    from app.db.sql_models import WorkbenchJob, Investigation
+    from sqlalchemy import select
+    async with async_session() as db:
+        for job in (await db.execute(select(WorkbenchJob).where(WorkbenchJob.status.in_(["queued", "running"])))).scalars():
+            job.status = "failed"
+            job.payload = {**job.payload, "status":"failed", "error":"Server restarted; resubmit task"}
+            job.events = [*(job.events or []), {"type":"task_failed", "data":{"task_id":job.id, "error":"Server restarted"}}]
+        for inv in (await db.execute(select(Investigation).where(Investigation.status.in_(["planning", "investigating"])))).scalars():
+            inv.status = "failed"
+        await db.commit()
+
+    from app.db.sql_models import SystemSetting
+    from app.orchestrator.model_router import model_router
+    async with async_session() as db:
+        routing = await db.get(SystemSetting, "routing")
+        if routing:
+            model_router._model_map.update({k:v for k,v in routing.value.items() if k in model_router._model_map and k != "embedding"})
     # 2. Egress monitor — sovereignty proof via socket audit
     egress_monitor.install_socket_audit()
 
     # 3. Checkpointer initialization & Graph compilation
     async with init_checkpointer() as checkpointer:
-        app.state.investigation_graph = build_investigation_graph(checkpointer)
         app.state.approval_graph = build_approval_graph(checkpointer)
-        app.state.chat_graph = build_chat_graph(checkpointer)
         yield
+    await model_router.close()
 
 
 app = FastAPI(
@@ -65,7 +85,7 @@ async def api_health_check():
 
 
 # --- Route Registration ---
-from app.routers import session, knowledge_base, investigations, evidence, export, audit, chat, approval, auth
+from app.routers import session, knowledge_base, investigations, evidence, export, audit, chat, approval, auth, exports
 
 app.include_router(session.router)
 app.include_router(auth.router)
@@ -78,3 +98,11 @@ app.include_router(chat.router)
 app.include_router(approval.router)
 
 
+
+app.include_router(exports.router)
+
+from app.routers import workbench
+app.include_router(workbench.router)
+
+from app.routers import runtime
+app.include_router(runtime.router)

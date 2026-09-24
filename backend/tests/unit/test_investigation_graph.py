@@ -148,10 +148,10 @@ class TestValidateEvidenceNode:
 
     @pytest.mark.asyncio
     async def test_no_retry_after_max_retries(self):
-        from app.langgraph.graphs.investigation_graph import validate_evidence_node
-        state = _base_state(evidence_bundle={}, retry_count=2)
-        result = await validate_evidence_node(state)
-        assert result["needs_retry"] is False
+        from app.langgraph.graphs.investigation_graph import validate_evidence_node,check_sufficiency
+        result=await validate_evidence_node(_base_state(evidence_bundle={},retry_count=2))
+        assert result['needs_retry'] is True
+        assert check_sufficiency(result)=='failed'
 
 
 class TestRoutingFunctions:
@@ -168,8 +168,7 @@ class TestRoutingFunctions:
 
     def test_check_sufficiency_max_retries(self):
         from app.langgraph.graphs.investigation_graph import check_sufficiency
-        state = _base_state(needs_retry=True, retry_count=2)
-        assert check_sufficiency(state) == "sufficient"
+        assert check_sufficiency(_base_state(needs_retry=True,retry_count=2))=='failed'
 
     def test_check_verification_verified(self):
         from app.langgraph.graphs.investigation_graph import check_verification
@@ -183,8 +182,7 @@ class TestRoutingFunctions:
 
     def test_check_verification_max_retries(self):
         from app.langgraph.graphs.investigation_graph import check_verification
-        state = _base_state(verification_result={"passed": False}, retry_count=2)
-        assert check_verification(state) == "verified"
+        assert check_verification(_base_state(verification_result={'passed':False},retry_count=2))=='failed'
 
 
 class TestDynamicFanOut:

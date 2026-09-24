@@ -7,11 +7,18 @@ services:
     container_name: kavachai-backend
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - HOST=0.0.0.0
       - PORT=8000
       - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - ENVIRONMENT=production
+      - ALLOW_DEMO_SESSIONS=false
+      - BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN:-}
+      - VISION_MODEL=${VISION_MODEL:-qwen2.5vl:3b}
+      - CODING_MODEL=${CODING_MODEL:-qwen2.5-coder:3b}
+      - SANDBOX_IMAGE=${SANDBOX_IMAGE:-python:3.11-slim}
+      - DOCKER_HOST=${DOCKER_HOST:-}
       - LLM_MODEL=${LLM_MODEL:-qwen2.5:3b}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - SQLITE_DB_PATH=/app/data/kavachai.db
@@ -46,7 +53,7 @@ services:
     container_name: kavachai-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -66,11 +73,12 @@ services:
 
   # ─── 3. Local Ollama LLM / Embeddings Engine ───────────────────────
   ollama:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    pull_policy: never
     container_name: kavachai-ollama
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_models:/root/.ollama
     networks:
@@ -94,3 +102,4 @@ networks:
   kavachai-network:
     name: kavachai-network
     driver: bridge
+    internal: true

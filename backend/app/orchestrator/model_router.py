@@ -29,10 +29,15 @@ class ModelRouter:
     """
 
     def __init__(self):
+        from urllib.parse import urlparse
+        host = urlparse(settings.OLLAMA_HOST)
+        if host.scheme not in ("http", "https") or host.hostname not in settings.ALLOWED_INFERENCE_HOSTS.split(",") or host.username or host.password:
+            raise ValueError("Inference endpoint must be in ALLOWED_INFERENCE_HOSTS")
         self._base_url = settings.OLLAMA_HOST
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
-            timeout=httpx.Timeout(settings.LLM_TIMEOUT_SECONDS, connect=0.5),
+            trust_env=False,
+            timeout=httpx.Timeout(settings.LLM_TIMEOUT_SECONDS, connect=5.0),
         )
         self._ollama_online: Optional[bool] = None
         self._last_ping: float = 0.0
@@ -42,7 +47,7 @@ class ModelRouter:
             "classification": settings.LLM_MODEL,    # Same model for classification (scope check)
             "embedding": settings.EMBEDDING_MODEL,    # nomic-embed-text
             "vision": settings.VISION_MODEL,         # Qwen 2.5-VL — visual P&ID & photo reasoning
-            "coding": settings.LLM_MODEL,            # Qwen 2.5 3B — coding / tool invocation
+            "coding": settings.CODING_MODEL,            # Qwen 2.5 3B — coding / tool invocation
         }
 
     async def is_ollama_available(self) -> bool:
@@ -54,7 +59,7 @@ class ModelRouter:
 
         self._last_ping = now
         try:
-            resp = await self._client.get("/api/tags", timeout=0.3)
+            resp = await self._client.get("/api/tags", timeout=5.0)
             self._ollama_online = (resp.status_code == 200)
         except Exception:
             self._ollama_online = False
@@ -308,7 +313,7 @@ class ModelRouter:
         model = self.get_model("embedding")
 
         if not await self.is_ollama_available():
-            return [self._pseudo_embed(t) for t in texts]
+            raise RuntimeError("Local embedding model unavailable; ingestion aborted")
 
         try:
             resp = await self._client.post(
@@ -319,260 +324,16 @@ class ModelRouter:
             resp.raise_for_status()
             data = resp.json()
             embeddings = data.get("embeddings", [])
-            if embeddings and len(embeddings) == len(texts):
+            if embeddings and len(embeddings) == len(texts) and all(len(v) == settings.EMBEDDING_DIMENSION for v in embeddings):
                 return embeddings
         except Exception:
             pass
 
-        return [self._pseudo_embed(t) for t in texts]
+        raise RuntimeError("Embedding request failed; no synthetic vectors stored")
 
 
-    def _pseudo_embed(self, text: str, dim: int = 768) -> List[float]:
-        """
-        Deterministic hash-based token bag pseudo-embedding of dimension 768.
-        Preserves cosine similarity between texts sharing vocabulary.
-        Offline fallback only (NFR-REL-1).
-        """
-        import hashlib
-        import math
-        import re
-
-        words = re.findall(r"\w+", text.lower())
-        vec = [0.0] * dim
-        for w in words:
-            h = int(hashlib.md5(w.encode("utf-8")).hexdigest(), 16)
-            idx = h % dim
-            sign = 1.0 if ((h >> 16) & 1) else -1.0
-            vec[idx] += sign
-
-        norm = math.sqrt(sum(x * x for x in vec))
-        if norm > 0:
-            return [x / norm for x in vec]
-        vec[0] = 1.0
-        return vec
-
-    def _offline_generate(self, prompt: str, task_type: str, fmt: Optional[str]) -> str:
-        """
-        High-fidelity deterministic response for the demo scenarios
-        and generalized industrial tasks when local Ollama is offline.
-        Implements: PRD §9 risk mitigation & workflow.md §6
-        """
-        import json
-        import re
-        p_lower = prompt.lower()
-
-        # Vision task offline fallback
-        if task_type == "vision":
-            target_match = re.search(r'Target equipment to locate:\s*"([^"]+)"', prompt, re.IGNORECASE)
-            equip = target_match.group(1).strip() if target_match else ""
-            if not equip:
-                equip_match = re.findall(r"\b([A-Z]-\d{2,4})\b", prompt)
-                equip = equip_match[0] if equip_match else "P-102"
-
-            if equip.upper() == "P-102":
-                return json.dumps({
-                    "found": True,
-                    "connections": ["T-101", "V-204"],
-                    "bounding_box": [110, 260, 190, 390],
-                    "visual_description": "Centrifugal crude charge pump P-102 identified between feed tank T-101 and control valve V-204 on Unit 101 P&ID.",
-                    "confidence": 0.95
-                })
-            elif equip.upper() in ("T-101", "V-204", "R-101"):
-                conns = ["P-102"] if equip.upper() in ("T-101", "V-204") else ["V-204"]
-                return json.dumps({
-                    "found": True,
-                    "connections": conns,
-                    "bounding_box": [100, 200, 200, 400],
-                    "visual_description": f"Component {equip.upper()} located in process flow diagram.",
-                    "confidence": 0.92
-                })
-            else:
-                return json.dumps({
-                    "found": False,
-                    "connections": [],
-                    "bounding_box": None,
-                    "visual_description": f"Equipment {equip} not located in diagram.",
-                    "confidence": 0.0
-                })
-
-        # Out-of-scope check (crude oil, stock price, weather, etc.)
-        out_of_scope_terms = ["crude oil", "stock price", "weather", "bitcoin", "gdp", "cryptocurrency", "cricket", "politics", "president"]
-        if any(term in p_lower for term in out_of_scope_terms):
-            if fmt == "json" or "sub_tasks" in p_lower or task_type in ("classification", "planning"):
-                return json.dumps({
-                    "is_in_scope": False,
-                    "sub_tasks": []
-                })
-
-        # Scenario 1: Fire emergency
-        if "fire" in p_lower or "emergency" in p_lower or "evacuation" in p_lower:
-            if "verify" in p_lower or "verification" in p_lower or task_type == "verification":
-                return json.dumps({
-                    "findings": [
-                        {
-                            "id": "f1",
-                            "verification_status": "supported",
-                            "reason": "Directly matches HSE-SOP-012 Section 3 emergency evacuation protocol."
-                        }
-                    ],
-                    "overall_status": "verified",
-                    "condition_summary": "Standard Emergency Protocol Verified",
-                    "overall_confidence": 95
-                })
-            elif "sub_tasks" in p_lower or task_type in ("classification", "planning"):
-                return json.dumps({
-                    "is_in_scope": True,
-                    "sub_tasks": [
-                        {"agent": "document_agent", "goal": "Find safety procedures and emergency evacuation instructions for fire"},
-                        {"agent": "rag_agent", "goal": "Retrieve standard operating procedure for fire emergency"}
-                    ]
-                })
-            elif "synthesize" in p_lower or "draft" in p_lower or "evidence bundle" in p_lower or task_type == "synthesis":
-                return json.dumps({
-                    "findings": [
-                        {
-                            "id": "f1",
-                            "title": "Fire Emergency Immediate Response Protocol",
-                            "detail": "1. Raise alarm at nearest manual call point or call emergency extension 5555. 2. Stop hot work and shut down machinery within 10s if safe. 3. Evacuate via emergency routes to Assembly Point B (North Lawn). 4. Report to HSE warden. Do not use elevators or re-enter facility until all-clear.",
-                            "evidence_refs": ["doc_sop01"]
-                        }
-                    ],
-                    "condition_summary": "Emergency response protocol verified"
-                })
-
-        # Scenario 2: Pump P-102 Investigation
-        if "p-102" in p_lower or "pump" in p_lower or "vibration" in p_lower or "deteriorat" in p_lower:
-            if "verify" in p_lower or "verification" in p_lower or task_type == "verification":
-                return json.dumps({
-                    "findings": [
-                        {
-                            "id": "f1",
-                            "verification_status": "supported",
-                            "reason": "Vibration increase (+76%) verified against inspection reports and telemetry data."
-                        },
-                        {
-                            "id": "f2",
-                            "verification_status": "supported",
-                            "reason": "Threshold breach (3.7 mm/s > 3.0 mm/s) verified against Pump Operating Manual Section 4.2."
-                        }
-                    ],
-                    "overall_status": "verified",
-                    "condition_summary": "Potential deterioration detected",
-                    "overall_confidence": 91
-                })
-            elif "sub_tasks" in p_lower or task_type in ("classification", "planning"):
-                return json.dumps({
-                    "is_in_scope": True,
-                    "sub_tasks": [
-                        {"agent": "document_agent", "goal": "Find inspection reports mentioning P-102"},
-                        {"agent": "data_agent", "goal": "Compute vibration trend for P-102, Jan–Jul"},
-                        {"agent": "vision_agent", "goal": "Identify P-102 connectivity in P&ID"},
-                        {"agent": "rag_agent", "goal": "Retrieve operating threshold for this pump model"}
-                    ]
-                })
-            elif "synthesize" in p_lower or "draft" in p_lower or "evidence bundle" in p_lower or task_type == "synthesis":
-                return json.dumps({
-                    "findings": [
-                        {
-                            "id": "f1",
-                            "title": "Increasing vibration",
-                            "detail": "Jan 2.1 → Apr 2.8 → Jul 3.7 mm/s (+76%)",
-                            "evidence_refs": ["doc_1120", "doc_1121", "doc_1122"]
-                        },
-                        {
-                            "id": "f2",
-                            "title": "Exceeds attention threshold",
-                            "detail": "Current 3.7 mm/s > spec 3.0 mm/s",
-                            "evidence_refs": ["doc_1130"]
-                        }
-                    ],
-                    "condition_summary": "Potential deterioration detected"
-                })
-
-        # Generalized Fallback for any equipment or industrial domain
-        equip_match = re.findall(r"\b([A-Z]-\d{2,4})\b", prompt)
-        equip = equip_match[0] if equip_match else "equipment"
-        doc_refs = re.findall(r"\b(doc_[a-zA-Z0-9_\-]+)\b", prompt)
-
-        if task_type == "verification" or "verify" in p_lower or "verification" in p_lower:
-            # Extract finding IDs like f1, f2 from prompt if present
-            f_ids = re.findall(r'"id":\s*"([^"]+)"', prompt) or ["f1", "f2"]
-            status = "attention_required" if any(w in p_lower for w in ["deteriorat", "fault", "breach", "high", "alert"]) else "verified"
-            return json.dumps({
-                "findings": [
-                    {
-                        "id": fid,
-                        "verification_status": "supported",
-                        "reason": f"Finding verified against documented operational records for {equip}."
-                    }
-                    for fid in set(f_ids)
-                ],
-                "overall_status": status,
-                "condition_summary": f"Operational assessment verified for {equip}",
-                "overall_confidence": 88
-            })
-
-        if task_type == "synthesis" or "synthesize" in p_lower or "draft" in p_lower or "evidence bundle" in p_lower:
-            refs1 = doc_refs[:2] if doc_refs else ["doc_ref_1"]
-            refs2 = doc_refs[2:4] if len(doc_refs) > 2 else refs1
-            return json.dumps({
-                "findings": [
-                    {
-                        "id": "f1",
-                        "title": f"Operational baseline for {equip}",
-                        "detail": f"Telemetry and maintenance records indicate monitored parameters for {equip}.",
-                        "evidence_refs": refs1
-                    },
-                    {
-                        "id": "f2",
-                        "title": f"Operating threshold compliance for {equip}",
-                        "detail": f"Parameters evaluated against engineering specifications for {equip}.",
-                        "evidence_refs": refs2
-                    }
-                ],
-                "condition_summary": f"Investigation completed for {equip}"
-            })
-
-        # Check if user submitted files/documents
-        has_submitted_files = "user-submitted files" in p_lower or "attached file" in p_lower or "evidence from user-submitted" in p_lower
-
-        if has_submitted_files:
-            if fmt == "json" or task_type in ("classification", "planning") or "sub_tasks" in p_lower:
-                return json.dumps({
-                    "is_in_scope": True,
-                    "sub_tasks": [
-                        {"agent": "document_agent", "goal": "Analyze passages, reports, and data in the submitted documents"},
-                        {"agent": "rag_agent", "goal": "Retrieve specifications, limits, and rules from the submitted documents"}
-                    ]
-                })
-
-            if task_type == "synthesis" or "synthesize" in p_lower or "draft" in p_lower or "evidence bundle" in p_lower:
-                refs = doc_refs if doc_refs else ["submitted_doc_1"]
-                return json.dumps({
-                    "findings": [
-                        {
-                            "id": "f1",
-                            "title": "Analysis of submitted documents",
-                            "detail": "Extracted key findings and verified information directly from user-submitted documentation.",
-                            "evidence_refs": refs[:2]
-                        }
-                    ],
-                    "condition_summary": "Investigation completed on submitted documents"
-                })
-
-        if fmt == "json" or task_type in ("classification", "planning") or "sub_tasks" in p_lower:
-            return json.dumps({
-                "is_in_scope": True,
-                "sub_tasks": [
-                    {"agent": "document_agent", "goal": f"Find maintenance and inspection reports mentioning {equip}"},
-                    {"agent": "data_agent", "goal": f"Analyze operational sensor data trends for {equip}"},
-                    {"agent": "vision_agent", "goal": f"Identify {equip} connectivity in P&ID drawings"},
-                    {"agent": "rag_agent", "goal": f"Retrieve operating limits and specifications for {equip}"}
-                ]
-            })
-
-        return f"Operational analysis completed for {equip} based on retrieved evidence records."
-
+    def _offline_generate(self, prompt, task_type, fmt):
+        raise RuntimeError(f"Local inference failed for {task_type}; no fallback evidence is generated")
 
     async def close(self):
         """Close the HTTP client."""

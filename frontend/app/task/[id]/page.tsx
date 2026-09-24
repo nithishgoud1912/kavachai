@@ -15,7 +15,7 @@ import SandboxBlockedState from "@/app/components/SandboxBlockedState";
 import Toast, { type ToastMessage } from "@/app/components/Toast";
 import { useTask } from "@/app/hooks/useTask";
 import { useTaskStream } from "@/app/hooks/useTaskStream";
-import type { EvidenceReference, EvidenceSource } from "@/app/types";
+import type { EvidenceReference } from "@/app/types";
 
 export default function LiveTaskWorkspacePage({
   params,
@@ -23,13 +23,14 @@ export default function LiveTaskWorkspacePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { task, setTask, loading, error, reviewTask, followUp } = useTask(id);
+  const { task, loading, error, reviewTask, followUp, reload } = useTask(id);
   const [activeCitation, setActiveCitation] = useState<EvidenceReference | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
   // SSE Stream integration for live multi-agent events
   const stream = useTaskStream(id, {
     onTaskCompleted: () => {
+      void reload();
       setToast({
         id: "task-done",
         type: "success",
@@ -93,6 +94,7 @@ export default function LiveTaskWorkspacePage({
 
   const handleRevise = async (comments: string) => {
     await reviewTask("revise", comments);
+    window.location.reload();
     setToast({
       id: "revised",
       type: "info",
@@ -114,18 +116,6 @@ export default function LiveTaskWorkspacePage({
   const handleFollowUp = async (msg: string) => {
     await followUp(msg);
   };
-
-  // Convert EvidenceReference to EvidenceSource for existing SourceViewer modal
-  const mockEvidenceSource: EvidenceSource | null = activeCitation
-    ? {
-        source_id: activeCitation.source_id,
-        type: activeCitation.type === "pid_drawing" ? "pid_drawing" : "document",
-        filename: activeCitation.label,
-        page: activeCitation.page || 1,
-        excerpt: `Grounded evidence for: ${task.query}. Verified against MRPL on-premise technical library.`,
-        view_url: `/api/v1/evidence/files/${activeCitation.source_id}/raw`,
-      } as any
-    : null;
 
   return (
     <AppShell

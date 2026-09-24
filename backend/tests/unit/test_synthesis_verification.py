@@ -103,3 +103,13 @@ async def test_verification_unsupported_findings_degradation():
         VerificationStatus.UNSUPPORTED,
         VerificationStatus.PARTIALLY_SUPPORTED,
     ]
+
+
+@pytest.fixture(autouse=True)
+def local_model_boundary(monkeypatch):
+    import json
+    async def generate(**kwargs):
+        if 'Verification' in kwargs.get('system','') or 'verification' in kwargs.get('system','').lower():
+            return json.dumps({'findings':[{'id':'f1','verification_status':'supported'}],'overall_confidence':80})
+        return json.dumps({'condition_summary':'Recorded vibration','findings':[{'id':'f1','title':'Vibration reading','detail':'July reading 3.7 mm/s','evidence_refs':['doc_1122']}]})
+    monkeypatch.setattr(synthesis.model_router,'generate',generate)

@@ -12,7 +12,7 @@ import asyncio
 import json
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -33,9 +33,12 @@ from app.models.investigation import (
 from app.models.chat import UploadResponse, BatchUploadResponse
 from app.orchestrator.investigation import InvestigationRunner
 from app.services.audit_service import create_audit_entry, resolve_audit_entry
-from app.deps import get_current_session, get_optional_session
+from app.deps import get_current_session, require_permission
+from app.access import assert_owner, owner_filter, validate_attachments
+from app.config import settings
+from app.ingestion.limits import read_upload
 
-router = APIRouter(prefix="/api/v1", tags=["investigations"])
+router = APIRouter(prefix="/api/v1", tags=["investigations"], dependencies=[Depends(require_permission("investigation:write"))])
 
 # In-memory store for active investigation runners
 _runners: dict[str, InvestigationRunner] = {}
@@ -43,6 +46,7 @@ _runners: dict[str, InvestigationRunner] = {}
 
 @router.get("/investigations")
 async def list_investigations(
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -50,7 +54,7 @@ async def list_investigations(
     Sorted by created_at DESC (newest first).
     """
     result = await db.execute(
-        select(Investigation).order_by(Investigation.created_at.desc())
+        select(Investigation).where(owner_filter(Investigation, current_session)).order_by(Investigation.created_at.desc())
     )
     investigations = result.scalars().all()
 
@@ -129,137 +133,41 @@ async def _cleanup_runner(investigation_id: str, delay_seconds: int = 60):
 async def upload_investigation_files(
     files: List[UploadFile] = File(...),
     paths: Optional[str] = Form(None),
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Upload and index files or folder contents for a Deep Investigation.
     Extracts text, chunks, embeds into ChromaDB, and registers in Document table.
     """
-    path_list = []
-    if paths:
-        try:
-            path_list = json.loads(paths)
-        except Exception:
-            path_list = []
-
-    uploaded_results: List[UploadResponse] = []
-
-    for idx, file in enumerate(files):
-        if not file.filename:
-            continue
-
-        safe_filename = Path(file.filename.replace("\\", "/")).name or file.filename
-        relative_path = path_list[idx] if idx < len(path_list) else file.filename
-        source_id = f"doc_{uuid.uuid4().hex[:8]}"
-        file_content = await file.read()
-        file_size = len(file_content)
-
-        # 1. Save raw file to object store
-        object_store.save_raw_file(source_id, file_content, safe_filename)
-
-        # 2. Extract text
-        pages = extract_text(file_content, safe_filename)
-        page_count = get_page_count(file_content, safe_filename)
-
-        suffix = Path(safe_filename).suffix.lower()
-        is_image = suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
-        file_type = "image" if is_image else "document"
-
-        chunk_count = 0
-        preview_text = None
-
-        if pages:
-            full_text = "\n\n".join(p["text"] for p in pages if p.get("text"))
-            preview_text = (full_text[:4000] if len(full_text) > 4000 else full_text) if full_text else None
-
-            # 3. Chunk text
-            chunks = chunk_pages(pages)
-
-            if chunks:
-                # 4. Tag chunks with metadata
-                tagged_chunks = tag_chunks(
-                    chunks=chunks,
-                    source_id=source_id,
-                    filename=safe_filename,
-                    document_type="investigation_upload",
-                    equipment_ids=[],
-                    department_scope=None,
-                )
-
-                # 5. Generate embeddings and store in vector DB
-                texts = [c["text"] for c in tagged_chunks]
-                embeddings = await generate_embeddings(texts)
-                chunk_ids = [f"{source_id}_chunk_{i}" for i in range(len(tagged_chunks))]
-                metadatas = [c["metadata"] for c in tagged_chunks]
-                for m in metadatas:
-                    m["relative_path"] = relative_path
-
-                vector_store.upsert_chunks(chunk_ids, texts, embeddings, metadatas)
-                chunk_count = len(tagged_chunks)
-
-        # 6. Save document record in DB
-        doc = Document(
-            id=source_id,
-            filename=safe_filename,
-            document_type="investigation_upload",
-            status="ready",
-            pages=page_count,
-            chunks=chunk_count,
-            equipment_ids=[],
-            department_scope=None,
-            source_id=source_id,
-        )
-        db.add(doc)
-        await db.commit()
-
-        file_url = f"/api/v1/files/{source_id}/raw"
-
-        uploaded_results.append(UploadResponse(
-            filename=safe_filename,
-            url=file_url,
-            type=file_type,
-            extracted_text_preview=preview_text,
-            source_id=source_id,
-            path=relative_path,
-            size=file_size,
-            chunk_count=chunk_count,
-        ))
-
-    return BatchUploadResponse(
-        files=uploaded_results,
-        total_files=len(uploaded_results),
-    )
+    from app.routers.chat import _process_chat_file
+    if len(files) > settings.MAX_BATCH_FILES:
+        raise HTTPException(413, "Too many files")
+    try:
+        path_list = json.loads(paths) if paths else []
+        if not isinstance(path_list, list):
+            raise ValueError()
+    except (ValueError, TypeError):
+        raise HTTPException(422, "paths must be a JSON list")
+    results = []
+    for i, file in enumerate(files):
+        results.append(await _process_chat_file(file, path_list[i] if i < len(path_list) else file.filename, db, current_session))
+    return BatchUploadResponse(files=results, total_files=len(results))
 
 
 @router.post("/investigations", response_model=InvestigationCreateResponse, status_code=202)
 async def create_investigation(
     body: InvestigationCreate,
     background_tasks: BackgroundTasks,
-    current_session: Optional[SessionModel] = Depends(get_optional_session),
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Start a new investigation with session validation.
     Implements: FR-PLN-1, API_Reference.md §4 POST /investigations
     """
-    from datetime import datetime, timezone
     active_session = current_session
-    if not active_session:
-        if not body.session_id:
-            raise HTTPException(status_code=401, detail="Authentication required: No session provided")
-        sess_res = await db.execute(select(SessionModel).where(SessionModel.id == body.session_id))
-        active_session = sess_res.scalar_one_or_none()
-        if not active_session:
-            raise HTTPException(status_code=401, detail="Invalid session_id")
-        if getattr(active_session, "is_revoked", False):
-            raise HTTPException(status_code=401, detail="Session has been revoked")
-        if active_session.expires_at:
-            now = datetime.now(timezone.utc)
-            exp = active_session.expires_at if active_session.expires_at.tzinfo else active_session.expires_at.replace(tzinfo=timezone.utc)
-            if now > exp:
-                raise HTTPException(status_code=401, detail="Session has expired")
-
-    attachments_data = [a.model_dump() for a in body.attachments] if body.attachments else []
+    attachments_data = await validate_attachments(body.attachments or [], current_session, db)
 
     # Create investigation
     investigation = Investigation(
@@ -295,7 +203,8 @@ async def create_investigation(
 @router.get("/investigations/{investigation_id}/stream")
 async def stream_investigation(
     investigation_id: str,
-    current_session: Optional[SessionModel] = Depends(get_optional_session),
+    request: Request,
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -307,13 +216,18 @@ async def stream_investigation(
         select(Investigation).where(Investigation.id == investigation_id)
     )
     investigation = result.scalar_one_or_none()
-    if not investigation:
-        raise HTTPException(status_code=404, detail="Investigation not found")
+    await assert_owner(investigation, current_session, db)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         last_event_index = 0
+        iterations = 0
+        max_iterations = 1200  # Safety break after 10 minutes (1200 * 0.5s)
 
-        while True:
+        while iterations < max_iterations:
+            if await request.is_disconnected():
+                break
+            iterations += 1
+
             runner = _runners.get(investigation_id)
 
             if runner:
@@ -342,7 +256,10 @@ async def stream_investigation(
                 )
                 status = check_result.scalar_one_or_none()
 
-                if status in ("complete", "failed"):
+                if status == "failed":
+                    yield f"event: investigation_failed\ndata: {json.dumps({'investigation_id': investigation_id, 'message': 'Investigation failed; inspect task events'})}\n\n"
+                    break
+                if status == "complete":
                     yield f"event: investigation_complete\ndata: {json.dumps({'investigation_id': investigation_id, 'report_url': f'/api/v1/investigations/{investigation_id}/report'})}\n\n"
                     break
                 elif status == "insufficient_evidence":
@@ -365,7 +282,7 @@ async def stream_investigation(
 @router.get("/investigations/{investigation_id}/report")
 async def get_report(
     investigation_id: str,
-    current_session: Optional[SessionModel] = Depends(get_optional_session),
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -377,8 +294,7 @@ async def get_report(
         select(Investigation).where(Investigation.id == investigation_id)
     )
     investigation = result.scalar_one_or_none()
-    if not investigation:
-        raise HTTPException(status_code=404, detail="Investigation not found")
+    await assert_owner(investigation, current_session, db)
 
     if investigation.status == "insufficient_evidence":
         return {
@@ -402,7 +318,7 @@ async def get_report(
     if "attachments" not in report_dict:
         report_dict["attachments"] = investigation.attachments or []
     if "query" not in report_dict or not report_dict["query"]:
-        report_dict["query"] = investigation.query or "P-102 Investigation"
+        report_dict["query"] = investigation.query or "Investigation"
     if "findings" not in report_dict or report_dict["findings"] is None:
         report_dict["findings"] = []
     return report_dict
@@ -411,7 +327,7 @@ async def get_report(
 @router.get("/investigations/{investigation_id}/plan", response_model=InvestigationPlanResponse)
 async def get_plan(
     investigation_id: str,
-    current_session: Optional[SessionModel] = Depends(get_optional_session),
+    current_session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -422,8 +338,7 @@ async def get_plan(
         select(Investigation).where(Investigation.id == investigation_id)
     )
     investigation = result.scalar_one_or_none()
-    if not investigation:
-        raise HTTPException(status_code=404, detail="Investigation not found")
+    await assert_owner(investigation, current_session, db)
 
     if not investigation.plan:
         raise HTTPException(status_code=202, detail="Plan not yet generated")

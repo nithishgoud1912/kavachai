@@ -37,50 +37,10 @@ async def retrieve_spec(
     Returns:
         List of SpecChunk with source references
     """
-    # Build a search query that targets specs/manuals
-    search_query = f"specification threshold limit {query} {equipment_id}"
-
-    # Generate embedding (through Model Router)
-    query_embeddings = await model_router.embed([search_query])
-    if not query_embeddings:
-        return []
-
-    query_embedding = query_embeddings[0]
-
-    # Build ChromaDB filter — prefer manuals and SOPs
-    where_filter = _build_spec_filter(filters)
-
-    # Query vector store
-    results = vector_store.query(
-        query_embedding=query_embedding,
-        n_results=max(n_results * 2, 6),
-        where=where_filter,
-    )
-
-    # Convert to SpecChunk contract and rank by equipment & spec relevance
-    specs = []
-    for r in results:
-        meta = r.get("metadata", {}) or {}
-        section = _extract_section_ref(r["chunk_text"])
-        
-        # Boost if chunk contains equipment_id or is manual/sop
-        is_eq = equipment_id in r["chunk_text"] or equipment_id in meta.get("equipment_ids", "")
-        is_spec_doc = meta.get("document_type") in ["manual", "sop"]
-        score = r.get("score", 0.0)
-        if is_eq:
-            score += 0.4
-        if is_spec_doc:
-            score += 0.3
-
-        specs.append((score, SpecChunk(
-            chunk_text=r["chunk_text"],
-            source_id=r["source_id"],
-            page=r.get("page"),
-            section=section,
-        )))
-
-    specs.sort(key=lambda x: x[0], reverse=True)
-    return [s[1] for s in specs[:n_results]]
+    from app.agents.document_agent import retrieve
+    chunks = await retrieve(f"specification threshold limit {query} {equipment_id}", filters, n_results)
+    return [SpecChunk(chunk_text=c.chunk_text, source_id=c.source_id, page=c.page,
+                      section=_extract_section_ref(c.chunk_text)) for c in chunks]
 
 
 def _build_spec_filter(

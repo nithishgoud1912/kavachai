@@ -21,7 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.db.sql_models import Investigation
-from app.deps import get_current_session, get_optional_session
+from app.deps import get_current_session
+from app.access import owner_filter
+from app.config import settings
 from app.db.sql_models import Session as SessionModel
 from app.services.document_export import (
     generate_briefing_docx,
@@ -58,7 +60,7 @@ SUPPORTED_FORMATS = set(MIME_TYPES.keys())
 
 # Resolve backend data directory
 BACKEND_DIR  = Path(__file__).resolve().parent.parent.parent
-EXPORTS_BASE = (BACKEND_DIR / "data" / "exports").resolve()
+EXPORTS_BASE = (Path(settings.SQLITE_DB_PATH).resolve().parent / "exports").resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +83,7 @@ async def _get_investigation(
     result = await db.execute(
         select(Investigation).where(
             Investigation.id == investigation_id,
-            Investigation.session_id == session.id,
+            owner_filter(Investigation, session),
         )
     )
     inv = result.scalar_one_or_none()
@@ -90,6 +92,8 @@ async def _get_investigation(
             status_code=404,
             detail="Investigation not found or you do not have access to it.",
         )
+    if not inv.report or inv.status != "complete":
+        raise HTTPException(409, "Completed report required")
     return inv
 
 
@@ -129,6 +133,8 @@ async def export_investigation(
     Returns:
         File download response with appropriate MIME type.
     """
+    if format == "status":
+        return await export_status(investigation_id, session, db)
     # Validate format
     if format not in SUPPORTED_FORMATS:
         raise HTTPException(
@@ -175,7 +181,7 @@ async def export_investigation(
             "Content-Disposition": (
                 f'attachment; filename="kavachai_mrpl_{investigation_id[:8]}.{format}"'
             ),
-            "X-KavachAI-Sovereignty": "Air-Gapped | Zero External Egress",
+            "Cache-Control": "private, no-store",
             "X-KavachAI-Format": EXPORT_LABELS[format],
         },
     )
@@ -232,7 +238,6 @@ async def generate_all(
                 "format":       item["format"],
                 "download_url": f"/api/v1/exports/{investigation_id}/{item['format']}",
                 "label":        item["label"],
-                "path":         item["path"],
             }
             for item in export_results
         ],
@@ -246,7 +251,7 @@ async def generate_all(
 )
 async def export_status(
     investigation_id: str,
-    session: SessionModel = Depends(get_optional_session),
+    session: SessionModel = Depends(get_current_session),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -264,6 +269,7 @@ async def export_status(
           }
         }
     """
+    await _get_investigation(investigation_id, session, db)
     formats_status = {}
     for fmt in sorted(SUPPORTED_FORMATS):
         cached = _export_path(investigation_id, fmt).exists()

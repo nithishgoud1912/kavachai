@@ -39,7 +39,12 @@ from app.models.chat import (
 )
 from app.orchestrator.model_router import model_router
 
-router = APIRouter(prefix="/api/v1", tags=["chat"])
+from app.deps import get_current_session, require_permission
+from app.access import assert_owner, owner_filter, validate_attachments
+from app.ingestion.limits import read_upload
+from app.config import settings
+
+router = APIRouter(prefix="/api/v1", tags=["chat"], dependencies=[Depends(require_permission("chat:write"))])
 
 # Upload directory
 UPLOAD_DIR = Path("./data/chat_uploads")
@@ -104,9 +109,10 @@ async def list_conversations(
     type: Optional[str] = Query(None, description="Filter by 'general' or 'report'"),
     investigation_id: Optional[str] = Query(None, description="Filter by investigation ID"),
     db: AsyncSession = Depends(get_db),
+    current_session: SessionModel = Depends(get_current_session),
 ):
     """List conversations, optionally filtered by type or investigation_id."""
-    query = select(Conversation).order_by(desc(Conversation.updated_at))
+    query = select(Conversation).where(owner_filter(Conversation, current_session)).order_by(desc(Conversation.updated_at))
 
     if type:
         query = query.where(Conversation.type == type)
@@ -147,15 +153,10 @@ async def list_conversations(
 async def create_conversation(
     body: ConversationCreate,
     db: AsyncSession = Depends(get_db),
+    current_session: SessionModel = Depends(get_current_session),
 ):
     """Create a new conversation."""
-    # Validate session
-    session_result = await db.execute(
-        select(SessionModel).where(SessionModel.id == body.session_id)
-    )
-    session = session_result.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid session_id")
+    session = current_session
 
     # Validate investigation_id if report type
     if body.type == "report" and body.investigation_id:
@@ -163,13 +164,12 @@ async def create_conversation(
             select(Investigation).where(Investigation.id == body.investigation_id)
         )
         investigation = inv_result.scalar_one_or_none()
-        if not investigation:
-            raise HTTPException(status_code=404, detail="Investigation not found")
+        await assert_owner(investigation, current_session, db)
 
     title = body.title or "New Chat"
 
     conversation = Conversation(
-        session_id=body.session_id,
+        session_id=current_session.id,
         user=session.name,
         department=session.department,
         title=title,
@@ -197,14 +197,14 @@ async def create_conversation(
 async def get_conversation(
     conversation_id: str,
     db: AsyncSession = Depends(get_db),
+    current_session: SessionModel = Depends(get_current_session),
 ):
     """Get a conversation with all its messages."""
     result = await db.execute(
         select(Conversation).where(Conversation.id == conversation_id)
     )
     conversation = result.scalar_one_or_none()
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    await assert_owner(conversation, current_session, db)
 
     # Fetch messages
     msg_result = await db.execute(
@@ -239,14 +239,14 @@ async def get_conversation(
 async def delete_conversation(
     conversation_id: str,
     db: AsyncSession = Depends(get_db),
+    current_session: SessionModel = Depends(get_current_session),
 ):
     """Delete a conversation and all its messages."""
     result = await db.execute(
         select(Conversation).where(Conversation.id == conversation_id)
     )
     conversation = result.scalar_one_or_none()
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    await assert_owner(conversation, current_session, db)
 
     # Delete all messages in the conversation
     await db.execute(
@@ -333,6 +333,7 @@ async def send_message(
     conversation_id: str,
     body: SendMessageRequest,
     db: AsyncSession = Depends(get_db),
+    current_session: SessionModel = Depends(get_current_session),
 ):
     """
     Send a user message and get an AI response.
@@ -344,8 +345,9 @@ async def send_message(
         select(Conversation).where(Conversation.id == conversation_id)
     )
     conversation = result.scalar_one_or_none()
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    await assert_owner(conversation, current_session, db)
+
+    body.attachments = [AttachmentItem(**a) for a in await validate_attachments(body.attachments, current_session, db)]
 
     # Build grounded attachment context for user message
     user_content = body.content
@@ -427,10 +429,8 @@ async def send_message(
             max_tokens=2048,
         )
     except Exception as e:
-        ai_response = (
-            "I apologize, but I'm unable to generate a response at this time. "
-            "Please ensure the AI backend is running and try again."
-        )
+        await db.rollback()
+        raise HTTPException(503, "Local inference unavailable") from e
 
     # Save assistant message
     assistant_message = ChatMessage(
@@ -456,98 +456,33 @@ async def send_message(
 
 # ─── File & Folder Upload ─────────────────────────────────────────────
 
-async def _process_chat_file(
-    file: UploadFile,
-    relative_path: str,
-    db: AsyncSession,
-) -> UploadResponse:
-    """Helper to process, save, extract text, chunk, and index a chat upload file."""
-    safe_filename = Path(file.filename.replace("\\", "/")).name or "file"
-    suffix = Path(safe_filename).suffix.lower()
-    is_document = suffix in DOCUMENT_EXTENSIONS
-    is_image = suffix in IMAGE_EXTENSIONS
-
-    if not is_document and not is_image:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type: {suffix}. "
-                   f"Supported: {', '.join(sorted(DOCUMENT_EXTENSIONS | IMAGE_EXTENSIONS))}",
-        )
-
-    unique_name = f"{uuid.uuid4().hex[:12]}_{safe_filename}"
-    file_path = UPLOAD_DIR / unique_name
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    source_id = f"chat_{uuid.uuid4().hex[:8]}"
-
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    # Save to object store as well
+async def _process_chat_file(file, relative_path, db, current_session):
+    from app.ingestion.extract import extract_text_with_ocr
+    safe_filename = Path((file.filename or "file").replace("\\", "/")).name
+    source_id = f"chat_{uuid.uuid4().hex}"
+    content = await read_upload(file)
+    pages = await extract_text_with_ocr(content, safe_filename)
+    if not pages or not any(p.get("text", "").strip() for p in pages):
+        raise HTTPException(422, "No readable content extracted; check local OCR/vision availability")
+    chunks = tag_chunks(chunk_pages(pages), source_id, safe_filename, "chat_upload", [], current_session.department, current_session.id)
+    embeddings = await generate_embeddings([c["text"] for c in chunks])
     object_store.save_raw_file(source_id, content, safe_filename)
-
-    extracted_text_preview = None
-    chunk_count = 0
-    full_text = None
-
-    if is_document:
-        try:
-            pages = extract_text(content, safe_filename)
-            page_count = get_page_count(content, safe_filename)
-            if pages:
-                full_text = "\n\n".join(p["text"] for p in pages if p.get("text"))
-                if full_text:
-                    extracted_text_preview = full_text[:4000] if len(full_text) > 4000 else full_text
-
-                chunks = chunk_pages(pages)
-                if chunks:
-                    tagged_chunks = tag_chunks(
-                        chunks=chunks,
-                        source_id=source_id,
-                        filename=safe_filename,
-                        document_type="chat_upload",
-                        equipment_ids=[],
-                        department_scope=None,
-                    )
-                    texts = [c["text"] for c in tagged_chunks]
-                    embeddings = await generate_embeddings(texts)
-                    chunk_ids = [f"{source_id}_chunk_{i}" for i in range(len(tagged_chunks))]
-                    metadatas = [c["metadata"] for c in tagged_chunks]
-                    for m in metadatas:
-                        m["relative_path"] = relative_path
-
-                    vector_store.upsert_chunks(chunk_ids, texts, embeddings, metadatas)
-                    chunk_count = len(tagged_chunks)
-
-            # Record in Document table
-            doc = Document(
-                id=source_id,
-                filename=safe_filename,
-                document_type="chat_upload",
-                status="ready",
-                pages=page_count if pages else 1,
-                chunks=chunk_count,
-                equipment_ids=[],
-                department_scope=None,
-                source_id=source_id,
-            )
-            db.add(doc)
-            await db.commit()
-        except Exception:
-            pass
-
-    file_url = f"/api/v1/files/chat/{unique_name}"
-
-    return UploadResponse(
-        filename=safe_filename,
-        url=file_url,
-        type="document" if is_document else "image",
-        extracted_text_preview=extracted_text_preview,
-        source_id=source_id,
-        path=relative_path,
-        size=len(content),
-        chunk_count=chunk_count,
-    )
+    try:
+        vector_store.upsert_chunks([f"{source_id}_chunk_{i}" for i in range(len(chunks))],
+                                   [c["text"] for c in chunks], embeddings, [c["metadata"] for c in chunks])
+        db.add(Document(id=source_id, filename=safe_filename, document_type="chat_upload", status="ready",
+                        pages=len(pages), chunks=len(chunks), source_id=source_id,
+                        department_scope=current_session.department, session_id=current_session.id))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        vector_store.delete_by_source(source_id)
+        object_store.delete(source_id)
+        raise
+    return UploadResponse(filename=safe_filename, url=f"/api/v1/files/{source_id}/raw",
+                          type="image" if Path(safe_filename).suffix.lower() in IMAGE_EXTENSIONS else "document",
+                          extracted_text_preview="\n\n".join(p["text"] for p in pages)[:4000],
+                          source_id=source_id, path=relative_path, size=len(content), chunk_count=len(chunks))
 
 
 @router.post("/conversations/upload", response_model=UploadResponse)
@@ -555,6 +490,7 @@ async def upload_chat_file(
     file: UploadFile = File(...),
     path: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
+    current_session: SessionModel = Depends(get_current_session),
 ):
     """
     Upload a single document or image for use in chat.
@@ -563,7 +499,7 @@ async def upload_chat_file(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
     relative_path = path or file.filename
-    return await _process_chat_file(file, relative_path, db)
+    return await _process_chat_file(file, relative_path, db, current_session)
 
 
 @router.post("/conversations/upload-batch", response_model=BatchUploadResponse)
@@ -571,24 +507,27 @@ async def upload_chat_batch(
     files: List[UploadFile] = File(...),
     paths: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
+    current_session: SessionModel = Depends(get_current_session),
 ):
     """
     Batch upload multiple files or an entire folder tree for chat.
     Preserves relative paths, extracts text, chunks, embeds into vector DB.
     """
+    if len(files) > settings.MAX_BATCH_FILES:
+        raise HTTPException(413, "Too many files")
     path_list = []
     if paths:
         try:
             path_list = json.loads(paths)
         except Exception:
-            path_list = []
+            raise HTTPException(422, "paths must be a JSON list")
 
     uploaded = []
     for idx, file in enumerate(files):
         if not file.filename:
             continue
         rel_path = path_list[idx] if idx < len(path_list) else file.filename
-        res = await _process_chat_file(file, rel_path, db)
+        res = await _process_chat_file(file, rel_path, db, current_session)
         uploaded.append(res)
 
     return BatchUploadResponse(
@@ -600,12 +539,6 @@ async def upload_chat_batch(
 # ─── Serve Uploaded Files ────────────────────────────────────────────
 
 @router.get("/files/chat/{filename}")
-async def serve_chat_file(filename: str):
-    """Serve an uploaded chat file. Path traversal protection via basename."""
-    safe_name = os.path.basename(filename)
-    file_path = UPLOAD_DIR / safe_name
-
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-
-    return FileResponse(str(file_path))
+async def serve_chat_file(filename: str, current_session: SessionModel = Depends(get_current_session)):
+    # Legacy files lack an ownership manifest. They must be reuploaded through authenticated ingestion.
+    raise HTTPException(410, "Legacy attachment unavailable; reupload through authenticated ingestion")

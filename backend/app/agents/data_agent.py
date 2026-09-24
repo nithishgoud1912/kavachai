@@ -54,6 +54,9 @@ def analyze(
             threshold_breach=None,
         )
 
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="raise")
+    if df["unit"].nunique() != 1:
+        raise ValueError("Cannot compare mixed units")
     # Ensure sorted by timestamp
     df = df.sort_values("timestamp").reset_index(drop=True)
 
@@ -81,7 +84,7 @@ def analyze(
 
     return DataAnalysisResult(
         trend=trend,
-        pct_change=round(pct_change, 1),
+        pct_change=round(pct_change, 1) if pct_change is not None else None,
         data_points=data_points,
         threshold_breach=threshold_breach,
     )
@@ -90,7 +93,7 @@ def analyze(
 def _compute_trend(values: list[float]) -> TrendDirection:
     """
     Determine trend direction from a sequence of values.
-    Uses simple linear regression slope sign.
+    Compares first-half and second-half averages using a 5% deadband.
     Pure pandas/math — no LLM.
     """
     if len(values) < 2:
@@ -116,7 +119,9 @@ def _compute_pct_change(values: list[float]) -> float:
     Compute percentage change from first to last value.
     Pure arithmetic — no LLM.
     """
-    if len(values) < 2 or values[0] == 0:
+    if len(values) < 2:
         return 0.0
+    if values[0] == 0:
+        return None
 
     return ((values[-1] - values[0]) / abs(values[0])) * 100

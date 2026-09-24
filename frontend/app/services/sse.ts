@@ -72,6 +72,8 @@ export function connectToInvestigationStream(
       }
     });
 
+    eventSource.addEventListener("investigation_failed", () => { handlers.onError?.(new Event("investigation_failed")); cleanup(); });
+
     eventSource.onerror = (error: Event) => {
       if (closed) return;
 
@@ -154,17 +156,17 @@ export function connectToTaskStream(
     if (closed) return;
     eventSource = new EventSource(url);
 
-    const bind = (eventName: string, callback?: (parsed: any) => void) => {
+    const bind = <T,>(eventName: string, callback?: (parsed: T) => void) => {
       if (!callback) return;
       eventSource?.addEventListener(eventName, (e: MessageEvent) => {
-        const id = e.lastEventId || `${eventName}_${e.data}`;
-        if (seenEventIds.has(id)) return;
-        seenEventIds.add(id);
+        const id = e.lastEventId;
+        if (id && seenEventIds.has(id)) return;
+        if (id) seenEventIds.add(id);
         try {
           const parsed = JSON.parse(e.data);
           callback(parsed);
         } catch {
-          callback(e.data);
+          callback(e.data as T);
         }
       });
     };
@@ -176,15 +178,15 @@ export function connectToTaskStream(
     bind("tool_call_started", handlers.onToolCallStarted);
     bind("tool_call_result", handlers.onToolCallResult);
     bind("model_selected", handlers.onModelSelected);
-    bind("output_delta", (data) => handlers.onOutputDelta?.(typeof data === "string" ? data : data?.delta || ""));
+    bind<string | {delta?: string}>("output_delta", (data) => handlers.onOutputDelta?.(typeof data === "string" ? data : data?.delta || ""));
     bind("artifact_created", handlers.onArtifactCreated);
     bind("citation_added", handlers.onCitationAdded);
     bind("hitl_required", handlers.onHitlRequired);
-    bind("task_completed", (data) => {
+    bind<{ task_id: string; duration_ms?: number }>("task_completed", (data) => {
       handlers.onTaskCompleted?.(data);
       cleanup();
     });
-    bind("task_failed", (data) => {
+    bind<{ task_id: string; error: string }>("task_failed", (data) => {
       handlers.onTaskFailed?.(data);
       cleanup();
     });

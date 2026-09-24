@@ -41,7 +41,6 @@ export default function Sidebar({
 
   const loadData = useCallback(async () => {
     try {
-      setLoadingHistory(true);
       const [convs, tList] = await Promise.all([
         getConversations().catch(() => []),
         getTasks().catch(() => []),
@@ -56,7 +55,8 @@ export default function Sidebar({
   }, []);
 
   useEffect(() => {
-    loadData();
+    const timer = setTimeout(() => void loadData(), 0);
+    return () => clearTimeout(timer);
   }, [loadData]);
 
   return (

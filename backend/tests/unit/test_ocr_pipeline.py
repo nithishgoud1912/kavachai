@@ -44,15 +44,13 @@ class TestExtractTextWithOcr:
 
     @pytest.mark.asyncio
     async def test_tier1_pdf_with_embedded_text(self):
-        """PDF with embedded text should return at Tier 1 without OCR."""
+        import pymupdf
         from app.ingestion.extract import extract_text_with_ocr
-        with patch("app.ingestion.extract._extract_pdf") as mock_extract:
-            mock_extract.return_value = [
-                {"page": 1, "text": "A" * 100, "metadata": {}}
-            ]
-            result = await extract_text_with_ocr(b"fake-pdf", "doc.pdf", enable_vlm=False)
-            assert len(result) == 1
-            assert len(result[0]["text"]) > 50
+        document=pymupdf.open()
+        document.new_page().insert_text((50,50),"Local embedded source text " * 4)
+        data=document.tobytes();document.close()
+        result=await extract_text_with_ocr(data,"doc.pdf",enable_vlm=False)
+        assert len(result)==1 and result[0]['metadata']['ocr_engine']=='embedded'
 
     @pytest.mark.asyncio
     async def test_tier2_tesseract_fallback(self):
@@ -64,7 +62,7 @@ class TestExtractTextWithOcr:
                 new_callable=AsyncMock,
                 return_value=[{"page": 1, "text": "B" * 50, "metadata": {"ocr_engine": "tesseract"}}],
             ):
-                result = await extract_text_with_ocr(b"scanned-pdf", "scan.pdf", enable_vlm=False)
+                result = await extract_text_with_ocr(b"image-fixture", "scan.png", enable_vlm=False)
                 assert len(result) == 1
                 assert result[0]["metadata"]["ocr_engine"] == "tesseract"
 
@@ -79,7 +77,7 @@ class TestExtractTextWithOcr:
                     new_callable=AsyncMock,
                     return_value=[{"page": 1, "text": "C" * 50, "metadata": {"ocr_engine": "easyocr"}}],
                 ):
-                    result = await extract_text_with_ocr(b"handwritten.pdf", "hw.pdf", enable_vlm=False)
+                    result = await extract_text_with_ocr(b"image-fixture", "hw.png", enable_vlm=False)
                     assert len(result) == 1
                     assert result[0]["metadata"]["ocr_engine"] == "easyocr"
 
@@ -95,7 +93,7 @@ class TestExtractTextWithOcr:
                         new_callable=AsyncMock,
                         return_value=[{"page": 1, "text": "VLM extracted text", "metadata": {"ocr_engine": "vlm_qwen25vl"}}],
                     ):
-                        result = await extract_text_with_ocr(b"diagram.pdf", "pid.pdf", enable_vlm=True)
+                        result = await extract_text_with_ocr(b"image-fixture", "pid.png", enable_vlm=True)
                         assert len(result) == 1
                         assert result[0]["metadata"]["ocr_engine"] == "vlm_qwen25vl"
 
@@ -107,7 +105,7 @@ class TestExtractTextWithOcr:
             with patch("app.ingestion.extract._ocr_tesseract", new_callable=AsyncMock, return_value=[]):
                 with patch("app.ingestion.extract._ocr_easyocr", new_callable=AsyncMock, return_value=[]):
                     with patch("app.ingestion.extract._ocr_vlm", new_callable=AsyncMock) as mock_vlm:
-                        result = await extract_text_with_ocr(b"data", "scan.pdf", enable_vlm=False)
+                        result = await extract_text_with_ocr(b"image-fixture", "scan.png", enable_vlm=False)
                         mock_vlm.assert_not_called()
 
 

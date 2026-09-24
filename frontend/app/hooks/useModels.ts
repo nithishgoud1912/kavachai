@@ -13,27 +13,26 @@ export function useModels() {
 
   const fetchData = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
       const [m, r, l] = await Promise.all([
-        getModels().catch(() => []),
-        getRoutingRules().catch(() => []),
-        getLiveRoutingLogs().catch(() => []),
+        getModels(),
+        getRoutingRules(),
+        getLiveRoutingLogs(),
       ]);
+      setError(null);
       setModels(m);
       setRules(r);
       setLogs(l);
-    } catch (err: any) {
-      setError(err.message || "Failed to load models");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load models");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
+    const initial = setTimeout(() => void fetchData(), 0);
     const interval = setInterval(fetchData, 15000);
-    return () => clearInterval(interval);
+    return () => { clearTimeout(initial); clearInterval(interval); };
   }, [fetchData]);
 
   const updateRule = async (rule: RoutingRule) => {
@@ -41,8 +40,8 @@ export function useModels() {
       const saved = await saveRoutingRule(rule);
       setRules((prev) => prev.map((r) => (r.id === saved.id ? saved : r)));
       return saved;
-    } catch (err: any) {
-      setError(err.message || "Failed to save rule");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save rule");
       throw err;
     }
   };

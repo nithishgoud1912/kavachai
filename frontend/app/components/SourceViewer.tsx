@@ -28,12 +28,13 @@ export default function SourceViewer({ sourceId, onClose }: SourceViewerProps) {
   }, []);
 
   useEffect(() => {
-    if (sourceId) {
-      fetchEvidence(sourceId);
-    } else {
-      setEvidence(null);
-    }
-  }, [sourceId, fetchEvidence]);
+    let active = true;
+    if (!sourceId) return;
+    getEvidence(sourceId).then(data => { if (active) { setEvidence(data); setError(null); } })
+      .catch(err => { if (active) { setEvidence(null); setError(err instanceof Error ? err.message : "Evidence unavailable"); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [sourceId]);
 
   // Keyboard dismiss
   useEffect(() => {

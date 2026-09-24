@@ -6,35 +6,10 @@ import SandboxBlockedState from "@/app/components/SandboxBlockedState";
 import SovereignBadge from "@/app/components/SovereignBadge";
 import { useSandbox } from "@/app/hooks/useSandbox";
 
-const DEFAULT_SCRIPT = `"""
-MRPL Air-Gapped Code Sandbox (Python 3.11)
-Asset: P-204 Crude Charge Pump Vibration Analysis
-"""
-
-# Calculate characteristic bearing fault frequencies for SKF 6318
-RPM = 2980
-SHAFT_HZ = RPM / 60.0  # 49.67 Hz
-
-# Bearing Dimensions
-N_BALLS = 8
-BALL_DIA = 30.0
-PITCH_DIA = 140.0
-
-gamma = BALL_DIA / PITCH_DIA
-
-bpfo = (N_BALLS / 2.0) * SHAFT_HZ * (1.0 - gamma)
-bpfi = (N_BALLS / 2.0) * SHAFT_HZ * (1.0 + gamma)
-
-print(f"Pump Operating Speed: {RPM} RPM ({SHAFT_HZ:.2f} Hz)")
-print(f"Calculated BPFO (Outer Race): {bpfo:.2f} Hz")
-print(f"Calculated BPFI (Inner Race): {bpfi:.2f} Hz")
-
-sensor_peak = 142.4
-error_pct = abs(sensor_peak - bpfo) / bpfo * 100
-print(f"Observed Anomaly Frequency: {sensor_peak} Hz (Variance: {error_pct:.2f}%)")
-
-if error_pct < 1.0:
-    print("CONCLUSION: High-confidence outer race bearing defect confirmed.")
+const DEFAULT_SCRIPT = `# Standard-library demonstration; no engineering claims.
+values = [1, 2, 3]
+assert sum(values) == 6
+print("Assertions passed:", sum(values))
 `;
 
 export default function SandboxPage() {
@@ -46,8 +21,9 @@ export default function SandboxPage() {
     // Check if user came from CodeViewer with preset code
     const preset = sessionStorage.getItem("sandbox_preset_code");
     if (preset) {
-      setCode(preset);
+      const timer = setTimeout(() => setCode(preset), 0);
       sessionStorage.removeItem("sandbox_preset_code");
+      return () => clearTimeout(timer);
     }
   }, []);
 

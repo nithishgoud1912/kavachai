@@ -44,16 +44,16 @@ def route_dispatched_agents(state: InvestigationState) -> List[Send]:
 
 def check_sufficiency(state: InvestigationState) -> str:
     """Route after evidence validation: sufficient → synthesize, insufficient → retry."""
-    if state.get("needs_retry", False) and state.get("retry_count", 0) < 2:
-        return "insufficient"
+    if state.get("needs_retry", False):
+        return "insufficient" if state.get("retry_count", 0) < 2 else "failed"
     return "sufficient"
 
 
 def check_verification(state: InvestigationState) -> str:
     """Route after verification: verified → deliverables, unverified → retry."""
     vr = state.get("verification_result", {})
-    if not vr.get("passed", True) and state.get("retry_count", 0) < 2:
-        return "unverified"
+    if not vr.get("passed", False):
+        return "unverified" if state.get("retry_count", 0) < 2 else "failed"
     return "verified"
 
 
@@ -110,9 +110,14 @@ async def create_plan_node(state: InvestigationState) -> dict:
 async def gather_documents_node(state: InvestigationState) -> dict:
     """Gather relevant documents from the knowledge base."""
     try:
+        from app.access import authorized_sources
+        from app.db.sql_models import Session
+        async with async_session() as db:
+            session = await db.get(Session, state.get("session_id"))
+            sources = await authorized_sources(session, db) if session else []
         chunks = await document_agent.retrieve(
             sub_task_goal=state["query"],
-            filters={"session_id": state.get("session_id")},
+            filters={"source_ids": sources},
         )
         return {
             "evidence_bundle": {"documents": [c.model_dump() for c in chunks]},
@@ -132,14 +137,20 @@ async def run_ocr_node(state: InvestigationState) -> dict:
         from app.ingestion.extract import extract_text_with_ocr
         from app.db.object_store import object_store
 
+        from app.access import authorized_sources
+        from app.db.sql_models import Session
+        async with async_session() as db:
+            session = await db.get(Session, state.get("session_id"))
+            sources = await authorized_sources(session, db) if session else []
         ocr_results = []
         for attachment_id in state.get("attachment_ids", []):
             try:
-                file_data = await object_store.get(attachment_id)
+                if attachment_id not in sources: raise ValueError("Unauthorized source")
+                file_data = object_store.get_raw_file(attachment_id)
                 if file_data:
                     pages = await extract_text_with_ocr(
-                        file_data["content"],
-                        file_data.get("filename", "attachment.pdf"),
+                        file_data[0],
+                        file_data[1],
                     )
                     ocr_results.extend([p["text"] for p in pages if p.get("text")])
             except Exception as e:
@@ -196,7 +207,7 @@ async def validate_evidence_node(state: InvestigationState) -> dict:
 
     has_any_evidence = has_documents or has_ocr or has_telemetry
 
-    if not has_any_evidence and state.get("retry_count", 0) < 2:
+    if not has_any_evidence:
         return {
             "needs_retry": True,
             "retry_reason": "Insufficient evidence — no documents, OCR, or telemetry found",
@@ -218,7 +229,8 @@ async def revise_plan_node(state: InvestigationState) -> dict:
     """Revise the investigation plan with expanded scope for retry."""
     reason = state.get("retry_reason", "general expansion")
     return {
-        "query": f"{state['query']} [expanded scope: {reason}]",
+        "query": state["query"],
+        "retry_count": state.get("retry_count", 0) + 1,
         "event_log": [{"agent": "planner", "status": "revised", "reason": reason}],
     }
 
@@ -279,7 +291,7 @@ async def verify_node(state: InvestigationState) -> dict:
     except Exception as e:
         logger.error("Verification failed: %s", e)
         return {
-            "verification_result": {"passed": True, "overall_status": "skipped"},
+            "verification_result": {"passed": False, "overall_status": "unverified"},
             "event_log": [{"agent": "verification", "status": "failed", "error": str(e)}],
         }
 
@@ -293,7 +305,9 @@ async def generate_deliverables_node(state: InvestigationState) -> dict:
         draft = state.get("draft_findings", {})
         report = state.get("verification_result", {})
 
-        exports = await generate_all_exports(investigation_id, draft, report)
+        if not report.get("passed", False):
+            raise ValueError("Verified report required before export")
+        exports = await generate_all_exports(investigation_id, report={**draft, **report})
         return {
             "deliverables": exports,
             "event_log": [{"agent": "deliverables", "status": "completed", "formats": len(exports)}],
@@ -354,6 +368,7 @@ def build_investigation_graph(checkpointer):
     graph.add_conditional_edges("validate_evidence", check_sufficiency, {
         "sufficient": "synthesize",
         "insufficient": "revise_plan",
+        "failed": END,
     })
     graph.add_edge("revise_plan", "create_plan")
 
@@ -362,6 +377,7 @@ def build_investigation_graph(checkpointer):
     graph.add_conditional_edges("verify", check_verification, {
         "verified": "generate_deliverables",
         "unverified": "revise_plan",
+        "failed": END,
     })
     graph.add_edge("generate_deliverables", END)
 

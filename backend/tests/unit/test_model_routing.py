@@ -95,32 +95,15 @@ class TestGenerateChatWithTools:
 
     @pytest.mark.asyncio
     async def test_offline_fallback_returns_dict(self, router):
-        """When Ollama is offline, should still return dict with tool_calls=None."""
-        with patch.object(router, "is_ollama_available", new_callable=AsyncMock, return_value=False):
-            result = await router.generate_chat_with_tools(
-                messages=[{"role": "user", "content": "Tell me about failures"}],
-                tools=[{"type": "function", "function": {"name": "search_local_documents"}}],
-            )
-
-        assert isinstance(result, dict)
-        assert "content" in result
-        assert result["tool_calls"] is None
-        assert isinstance(result["content"], str)
+        with patch.object(router, "is_ollama_available", AsyncMock(return_value=False)):
+            with pytest.raises(RuntimeError):
+                await router.generate_chat_with_tools(messages=[], tools=[])
 
     @pytest.mark.asyncio
     async def test_exception_fallback_returns_dict(self, router):
-        """Network errors should trigger fallback, returning dict with tool_calls=None."""
-        with patch.object(router, "is_ollama_available", new_callable=AsyncMock, return_value=True):
-            with patch.object(
-                router._client, "post", new_callable=AsyncMock, side_effect=Exception("Connection refused")
-            ):
-                result = await router.generate_chat_with_tools(
-                    messages=[{"role": "user", "content": "Test query"}],
-                    tools=[],
-                )
-
-        assert isinstance(result, dict)
-        assert result["tool_calls"] is None
+        with patch.object(router, "is_ollama_available", AsyncMock(return_value=True)), patch.object(router._client,"post",AsyncMock(side_effect=RuntimeError("offline"))):
+            with pytest.raises(RuntimeError):
+                await router.generate_chat_with_tools(messages=[], tools=[])
 
     @pytest.mark.asyncio
     async def test_sends_tools_in_payload(self, router):
@@ -284,13 +267,10 @@ class TestKavachLLM:
 
 @pytest.mark.asyncio
 async def test_generate_chat_returns_string():
-    """Verify that existing generate_chat() returns a string (backward compatibility)."""
-    with patch.object(model_router, "is_ollama_available", new_callable=AsyncMock) as mock_avail:
-        mock_avail.return_value = False
-        res = await model_router.generate_chat(
-            messages=[{"role": "user", "content": "Hello"}]
-        )
-        assert isinstance(res, str)
+    response=MagicMock()
+    response.json.return_value={"message":{"content":"Actual local response"}}
+    with patch.object(model_router, "is_ollama_available", AsyncMock(return_value=True)), patch.object(model_router._client,"post",AsyncMock(return_value=response)):
+        assert await model_router.generate_chat(messages=[])=="Actual local response"
 
 
 @pytest.mark.asyncio
@@ -307,16 +287,9 @@ async def test_generate_chat_with_tools_returns_dict():
         }
     ]
 
-    # Test offline / fallback path
-    with patch.object(model_router, "is_ollama_available", new_callable=AsyncMock) as mock_avail:
-        mock_avail.return_value = False
-        res = await model_router.generate_chat_with_tools(
-            messages=[{"role": "user", "content": "Investigate P-102"}],
-            tools=sample_tools,
-        )
-        assert isinstance(res, dict)
-        assert "content" in res
-        assert "tool_calls" in res
+    with patch.object(model_router, "is_ollama_available", AsyncMock(return_value=False)):
+        with pytest.raises(RuntimeError):
+            await model_router.generate_chat_with_tools(messages=[], tools=sample_tools)
 
     # Test online mocked response path
     mock_resp = MagicMock()

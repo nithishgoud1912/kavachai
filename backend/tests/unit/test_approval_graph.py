@@ -112,7 +112,7 @@ class TestGenerateFinalNode:
             return_value="/exports/inv-001/note_for_approval.docx",
         ):
             result = await generate_final_node(state)
-        assert result["final_docx_url"] == "/exports/inv-001/note_for_approval.docx"
+        assert result["final_docx_url"] == "/api/v1/exports/inv-001/docx"
 
     @pytest.mark.asyncio
     async def test_generate_final_fallback_on_error(self):
@@ -122,8 +122,8 @@ class TestGenerateFinalNode:
             new_callable=AsyncMock,
             side_effect=Exception("Export failed"),
         ):
-            result = await generate_final_node(state)
-        assert result["final_docx_url"] is None
+            with pytest.raises(RuntimeError, match="artifact generation failed"):
+                await generate_final_node(state)
 
 
 # ---------------------------------------------------------------------------

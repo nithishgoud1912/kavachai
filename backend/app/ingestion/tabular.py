@@ -60,11 +60,20 @@ def parse_tabular_file(
             f"Expected: {required}"
         )
 
-    # Ensure value column is numeric
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-
-    # Drop rows with NaN values (from coercion failures)
-    df = df.dropna(subset=["value"])
+    import numpy as np
+    if df.empty or len(df) > 100000:
+        raise ValueError("Dataset must contain 1 to 100000 rows")
+    df["value"] = pd.to_numeric(df["value"], errors="raise")
+    if not np.isfinite(df["value"]).all(): raise ValueError("Values must be finite")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="raise", utc=True).map(lambda t: t.isoformat())
+    for column in ("equipment_id", "metric", "unit"):
+        if df[column].isna().any(): raise ValueError(f"{column} cannot be missing")
+        df[column] = df[column].astype(str).str.strip()
+        if (df[column] == "").any(): raise ValueError(f"{column} cannot be blank")
+    if (df.groupby(["equipment_id", "metric"])["unit"].nunique() > 1).any():
+        raise ValueError("Mixed units for the same equipment metric; convert explicitly before ingestion")
+    if df.duplicated(["timestamp", "equipment_id", "metric"]).any():
+        raise ValueError("Duplicate measurements at the same timestamp")
 
     # Store in tabular store
     result = tabular_store.ingest_dataframe(dataset_id, df)

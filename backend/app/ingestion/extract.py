@@ -92,6 +92,8 @@ def _extract_docx(file_content: bytes) -> List[Dict[str, Any]]:
         if para.text.strip():
             full_text.append(para.text)
 
+    for table in doc.tables:
+        full_text.extend(" | ".join(cell.text for cell in row.cells) for row in table.rows)
     if full_text:
         return [{
             "page": 1,
@@ -147,44 +149,43 @@ async def extract_text_with_ocr(
     Returns:
         List of pages: [{page: int, text: str, metadata: {...}}]
     """
+    import asyncio
+    from app.ingestion.limits import validate_container
+    validate_container(file_content, filename)
     suffix = Path(filename).suffix.lower()
-    IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff"}
-
-    # For non-PDF, non-image files, use standard extraction
-    if suffix not in (".pdf",) and suffix not in IMAGE_SUFFIXES:
-        return extract_text(file_content, filename)
-
-    # --- Tier 1: Try embedded text extraction first (PDF only) ---
     if suffix == ".pdf":
-        pages = _extract_pdf(file_content)
-        if pages and any(len(p["text"].strip()) > 50 for p in pages):
-            logger.info("Tier 1 (embedded text) succeeded for %s", filename)
+        # Extract one page at a time so embedded text on page 1 cannot hide scans later.
+        import pymupdf
+        pages = []
+        with pymupdf.open(stream=file_content, filetype="pdf") as document:
+            for i, page in enumerate(document):
+                text = page.get_text().strip()
+                if len(text) >= 50:
+                    pages.append({"page": i + 1, "text": text, "metadata": {"ocr_engine": "embedded"}})
+                    continue
+                if page.rect.width * page.rect.height > 10000000:
+                    raise ValueError("PDF page exceeds rendering limit")
+                image = await asyncio.to_thread(lambda p=page: p.get_pixmap(dpi=120).tobytes("png"))
+                extracted = await extract_text_with_ocr(image, "page.png", enable_vlm)
+                if not extracted or not any(p.get("text", "").strip() for p in extracted):
+                    logger.warning("Page %d of %s has no text extractable by OCR; treating as visual graphic.", i + 1, filename)
+                    pages.append({
+                        "page": i + 1,
+                        "text": f"[Page {i + 1}: Visual/non-text content]",
+                        "metadata": {"ocr_engine": "none", "visual_content": True},
+                    })
+                    continue
+                for result in extracted:
+                    result["page"] = i + 1
+                pages.extend(extracted)
+        return pages
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tiff"}:
+        return await asyncio.to_thread(extract_text, file_content, filename)
+    for extractor in (_ocr_tesseract, _ocr_easyocr):
+        pages = await extractor(file_content, filename, suffix)
+        if pages and any(p.get("text", "").strip() for p in pages):
             return pages
-
-    # --- Tier 2: Tesseract OCR ---
-    tier2_pages = await _ocr_tesseract(file_content, filename, suffix)
-    if tier2_pages and any(len(p["text"].strip()) > 30 for p in tier2_pages):
-        logger.info("Tier 2 (Tesseract) succeeded for %s", filename)
-        return tier2_pages
-
-    # --- Tier 3: EasyOCR ---
-    tier3_pages = await _ocr_easyocr(file_content, filename, suffix)
-    if tier3_pages and any(len(p["text"].strip()) > 30 for p in tier3_pages):
-        logger.info("Tier 3 (EasyOCR) succeeded for %s", filename)
-        return tier3_pages
-
-    # --- Tier 4: VLM (Qwen2.5-VL via ModelRouter) ---
-    if enable_vlm:
-        tier4_pages = await _ocr_vlm(file_content, filename, suffix)
-        if tier4_pages:
-            logger.info("Tier 4 (VLM) succeeded for %s", filename)
-            return tier4_pages
-
-    # Fallback: return whatever we have from Tier 1
-    logger.warning("All OCR tiers failed for %s, returning Tier 1 result", filename)
-    if suffix == ".pdf":
-        return _extract_pdf(file_content)
-    return []
+    return await _ocr_vlm(file_content, filename, suffix) if enable_vlm else []
 
 
 async def _ocr_tesseract(
@@ -224,7 +225,7 @@ async def _ocr_easyocr(
         import io
         import asyncio
 
-        reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        reader = easyocr.Reader(["en"], gpu=False, verbose=False, download_enabled=False)
         images = _content_to_images(file_content, suffix)
         pages = []
 

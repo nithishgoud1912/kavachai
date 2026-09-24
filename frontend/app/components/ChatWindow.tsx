@@ -107,21 +107,19 @@ export default function ChatWindow({
 
   // Sync conversationId prop — also clear attachments/errors for a fresh state
   useEffect(() => {
-    setCurrentConvId(conversationId);
-    setAttachments([]);
-    setUploadError(null);
+    const timer = setTimeout(() => { setCurrentConvId(conversationId); setAttachments([]); setUploadError(null); }, 0);
+    return () => clearTimeout(timer);
   }, [conversationId]);
 
   // Load conversation messages when conversationId changes
   useEffect(() => {
     if (!currentConvId) {
-      setMessages([]);
-      return;
+      const timer = setTimeout(() => setMessages([]), 0);
+      return () => clearTimeout(timer);
     }
 
     let cancelled = false;
     async function load() {
-      setLoading(true);
       try {
         const detail = await getConversation(currentConvId!);
         if (!cancelled) {

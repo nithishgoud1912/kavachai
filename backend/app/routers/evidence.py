@@ -19,6 +19,7 @@ from app.db.object_store import object_store
 from app.db.tabular_store import tabular_store
 from app.db.graph_store import graph_store
 from app.models.evidence import EvidenceResponse
+from app.access import assert_owner
 from app.deps import Principal, get_current_session, require_permission
 
 router = APIRouter(prefix="/api/v1", tags=["evidence"])
@@ -29,12 +30,9 @@ async def _assert_source_scope(
 ) -> None:
     """Do not expose raw/object-store contents merely because an opaque ID is known."""
     document = (await db.execute(select(Document).where(Document.source_id == source_id))).scalar_one_or_none()
-    if not document:
-        return  # Built-in corpus/P&ID sources have no document row.
-    if document.session_id and document.session_id != session.id:
-        raise HTTPException(status_code=403, detail="Source is outside this session scope")
-    if document.department_scope and document.department_scope.strip().lower() != principal.department.strip().lower():
-        raise HTTPException(status_code=403, detail="Source is outside this department scope")
+    if document is None:
+        document = await db.get(Dataset, source_id)
+    await assert_owner(document, session, db, shared=True)
 
 
 @router.get("/evidence/{source_id}", response_model=EvidenceResponse)
@@ -43,7 +41,7 @@ async def get_evidence(
     page: Optional[int] = Query(None),
     equipment_id: Optional[str] = Query(None),
     current_session: SessionModel = Depends(get_current_session),
-    _: Principal = Depends(require_permission("document:read")),
+    principal: Principal = Depends(require_permission("document:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -91,6 +89,7 @@ async def get_evidence(
     ds = ds_result.scalar_one_or_none()
 
     if ds:
+        await assert_owner(ds, current_session, db, shared=True)
         # Resolve target equipment ID dynamically
         target_equipment = equipment_id
         if not target_equipment and ds.table_name and tabular_store.table_exists(ds.table_name):
@@ -104,7 +103,8 @@ async def get_evidence(
             except Exception:
                 pass
 
-        target_equipment = target_equipment or "P-102"
+        if not target_equipment:
+            raise HTTPException(422, "equipment_id required")
 
         rows = []
         if ds.table_name:
@@ -116,38 +116,6 @@ async def get_evidence(
             type="dataset",
             filename=ds.filename,
             rows=rows,
-        )
-
-    # Check if it's a P&ID source
-    if source_id.startswith("pid_") or source_id == "pid_drawing":
-        target_equipment = equipment_id
-        if not target_equipment:
-            # Check if source_id contains equipment suffix (e.g. pid_P-102)
-            suffix_match = re.search(r"pid_([A-Z]-\d{2,4})", source_id)
-            if suffix_match:
-                target_equipment = suffix_match.group(1)
-            else:
-                target_equipment = "P-102"
-
-        connections = graph_store.get_connections(target_equipment)
-        view_url = f"/api/v1/files/{source_id}/raw"
-        if not object_store.get_raw_file(source_id) and object_store.get_raw_file("pid_101"):
-            view_url = "/api/v1/files/pid_101/raw"
-
-        visual_desc = (
-            f"Component {target_equipment} visually identified in process schematic connected to: {', '.join(connections)}."
-            if connections else f"Equipment {target_equipment} not directly connected."
-        )
-
-        return EvidenceResponse(
-            source_id=source_id,
-            type="pid_drawing",
-            filename="P&ID Process Schematic",
-            highlighted_component=target_equipment,
-            connections=connections,
-            view_url=view_url,
-            visual_description=visual_desc,
-            bounding_box=[110, 260, 190, 390] if target_equipment == "P-102" else None,
         )
 
     raise HTTPException(status_code=404, detail="Evidence not found")

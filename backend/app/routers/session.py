@@ -18,7 +18,7 @@ from app.models.session import (
     SessionRevokeRequest,
     SessionRevokeResponse,
 )
-from app.deps import get_current_session
+from app.deps import get_current_session, get_current_principal, Principal
 from app.config import settings
 
 router = APIRouter(prefix="/api/v1", tags=["session"])
@@ -53,20 +53,21 @@ async def create_session(body: SessionCreate, db: AsyncSession = Depends(get_db)
         session_id=session.id,
         name=session.name,
         department=session.department,
-        issued_at=session.issued_at.isoformat() + "Z",
-        expires_at=session.expires_at.isoformat() + "Z" if session.expires_at else None,
+        issued_at=session.issued_at.isoformat(),
+        expires_at=session.expires_at.isoformat() if session.expires_at else None,
     )
 
 
 @router.get("/session/me", response_model=SessionResponse)
-async def get_my_session(current_session: SessionModel = Depends(get_current_session)):
+async def get_my_session(current_session: SessionModel = Depends(get_current_session), principal: Principal = Depends(get_current_principal)):
     """Return the currently authenticated session details."""
     return SessionResponse(
         session_id=current_session.id,
         name=current_session.name,
+        roles=list(principal.roles),
         department=current_session.department,
-        issued_at=current_session.issued_at.isoformat() + "Z",
-        expires_at=current_session.expires_at.isoformat() + "Z" if current_session.expires_at else None,
+        issued_at=current_session.issued_at.isoformat(),
+        expires_at=current_session.expires_at.isoformat() if current_session.expires_at else None,
     )
 
 

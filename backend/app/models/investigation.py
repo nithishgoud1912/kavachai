@@ -3,16 +3,16 @@ KavachAI — Investigation Pydantic Schemas
 Mirrors: API_Reference.md §4
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.models.chat import AttachmentItem, UploadResponse
 
 
 class InvestigationCreate(BaseModel):
     """POST /investigations request body."""
-    query: str
+    query: str = Field(min_length=1, max_length=20000)
     session_id: Optional[str] = None
-    attachments: Optional[List[AttachmentItem]] = []
+    attachments: Optional[List[AttachmentItem]] = Field(default_factory=list, max_length=20)
 
 
 class InvestigationCreateResponse(BaseModel):

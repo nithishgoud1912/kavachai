@@ -17,7 +17,11 @@ from app.config import settings
 class VectorStore:
     """ChromaDB wrapper for document chunk storage and retrieval."""
 
-    COLLECTION_NAME = "kavachai_chunks"
+    # New namespace deliberately quarantines the old mixed pseudo/real index.
+    import hashlib
+    COLLECTION_NAME = "kavachai_v2_" + hashlib.sha256(
+        f"{settings.EMBEDDING_MODEL}:{settings.EMBEDDING_DIMENSION}".encode()
+    ).hexdigest()[:16]
 
     def __init__(self):
         self._client = chromadb.PersistentClient(
@@ -53,6 +57,13 @@ class VectorStore:
             embeddings=embeddings,
             metadatas=metadatas,
         )
+        # Remove stale tails only after successful replacement writes.
+        for source_id in {m["source_id"] for m in metadatas}:
+            existing = self._collection.get(where={"source_id": source_id}, include=[])["ids"]
+            retained = {id for id, meta in zip(ids, metadatas) if meta["source_id"] == source_id}
+            stale = [id for id in existing if id not in retained]
+            if stale:
+                self._collection.delete(ids=stale)
 
     def query(
         self,

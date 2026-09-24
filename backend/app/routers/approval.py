@@ -7,7 +7,7 @@ Endpoints:
   POST /api/v1/investigations/{id}/approval/resume  — Resume with officer decision
 """
 
-from typing import Optional
+from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -18,7 +18,8 @@ from langgraph.types import Command
 
 from app.db.database import get_db, async_session
 from app.db.sql_models import Investigation
-from app.deps import get_current_session
+from app.deps import get_current_session, require_permission, Principal
+from app.access import owner_filter
 from app.db.sql_models import Session as SessionModel
 
 router = APIRouter(prefix="/api/v1/investigations", tags=["approval"])
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/api/v1/investigations", tags=["approval"])
 
 class ReviewPayload(BaseModel):
     """Officer review submission."""
-    action: str  # "approved" | "rejected"
+    action: Literal["approved", "rejected"]  # "approved" | "rejected"
     edits: Optional[str] = None
     draft_version: int
 
@@ -51,7 +52,7 @@ async def start_approval(
         res = await db.execute(
             select(Investigation).where(
                 Investigation.id == id,
-                Investigation.session_id == session.id,
+                owner_filter(Investigation, session),
             )
         )
         inv = res.scalar_one_or_none()
@@ -88,6 +89,7 @@ async def resume_approval(
     id: str,
     body: ReviewPayload,
     request: Request,
+    principal: Principal = Depends(require_permission("deliverable:approve")),
     session: SessionModel = Depends(get_current_session),
 ):
     """
@@ -104,7 +106,7 @@ async def resume_approval(
         res = await db.execute(
             select(Investigation).where(
                 Investigation.id == id,
-                Investigation.session_id == session.id,
+                owner_filter(Investigation, session),
             )
         )
         if not res.scalar_one_or_none():

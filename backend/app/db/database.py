@@ -3,6 +3,7 @@ KavachAI Backend — SQLAlchemy Database Initialization
 Implements: NFR-PORT-1 (SQLite for prototype, swappable to PostgreSQL)
 """
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from app.config import settings
@@ -10,13 +11,21 @@ import os
 
 
 # Ensure data directory exists
-os.makedirs(os.path.dirname(settings.SQLITE_DB_PATH), exist_ok=True)
+os.makedirs(os.path.dirname(settings.SQLITE_DB_PATH) or ".", exist_ok=True)
 
 # Async SQLite engine
 engine = create_async_engine(
     f"sqlite+aiosqlite:///{settings.SQLITE_DB_PATH}",
     echo=False,
 )
+
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.close()
 
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -47,6 +56,8 @@ async def init_db():
             if "auth_method" not in columns:
                 sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN auth_method TEXT"))
 
+            if "last_seen_at" not in columns:
+                sync_conn.execute(text("ALTER TABLE sessions ADD COLUMN last_seen_at DATETIME"))
             # Check investigations table
             res_inv = sync_conn.execute(text("PRAGMA table_info(investigations)"))
             inv_cols = [row[1] for row in res_inv.fetchall()]
@@ -61,6 +72,8 @@ async def init_db():
             if "session_id" not in doc_cols:
                 sync_conn.execute(text("ALTER TABLE documents ADD COLUMN session_id TEXT"))
 
+            if "classification" not in doc_cols:
+                sync_conn.execute(text("ALTER TABLE documents ADD COLUMN classification TEXT NOT NULL DEFAULT 'internal'"))
             # Check datasets table
             res_ds = sync_conn.execute(text("PRAGMA table_info(datasets)"))
             ds_cols = [row[1] for row in res_ds.fetchall()]

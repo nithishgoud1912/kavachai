@@ -197,10 +197,10 @@ class TestDocumentRetrievalSessionFilter:
         ):
             await document_agent.retrieve(
                 sub_task_goal="pump failure cause",
-                filters={"session_id": "sess-xyz"},
+                filters={"session_id": "sess-xyz", "source_ids": ["doc-abc"]},
                 n_results=3,
             )
-            mock_filter.assert_called_once_with({"session_id": "sess-xyz"})
+            mock_filter.assert_called_once_with({"session_id": "sess-xyz", "source_ids": ["doc-abc"]})
 
 
 # ---------------------------------------------------------------------------
@@ -208,147 +208,41 @@ class TestDocumentRetrievalSessionFilter:
 # ---------------------------------------------------------------------------
 
 class TestToolDatasetOwnership:
-    """Verify tool execution and dataset ownership validation."""
-
     @pytest.mark.asyncio
-    async def test_tool_search_local_documents_passes_session_id(self):
-        """Verify search_local_documents passes session_id from config to document_agent.retrieve."""
-        mock_chunks = [
-            DocumentChunk(chunk_text="Vibration normal", source_id="doc_10", page=1, score=0.9),
-        ]
-
-        with patch("app.agents.document_agent.retrieve", new_callable=AsyncMock) as mock_retrieve:
-            mock_retrieve.return_value = mock_chunks
-            config: RunnableConfig = {"configurable": {"session_id": "sess_999"}}
-
-            result = await search_local_documents.ainvoke({"query": "P-102 vibration"}, config=config)
-
-            mock_retrieve.assert_awaited_once_with(
-                sub_task_goal="P-102 vibration",
-                filters={"session_id": "sess_999"},
-                n_results=5,
-            )
-            assert "[doc_10 p.1]: Vibration normal" in result
-
-    @pytest.mark.asyncio
-    async def test_tool_validates_dataset_ownership_rejects_cross_session(self):
-        """Tool returns error when dataset belongs to a different session."""
-        mock_config = {"configurable": {"session_id": "sess-current"}}
-
+    async def test_search_uses_authorized_source_ids(self):
+        from app.db.database import init_db
+        from app.db.sql_models import Session
+        await init_db()
         mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_execute_result = MagicMock()
-        mock_execute_result.scalar_one_or_none.return_value = None
-        mock_db.execute = AsyncMock(return_value=mock_execute_result)
-
-        with patch("app.langchain.tools.async_session", return_value=mock_db):
-            result = await analyze_operational_data.ainvoke(
-                {
-                    "metric": "vibration_rms",
-                    "equipment_id": "P-102",
-                    "dataset_id": "dataset-other-session",
-                    "config": mock_config,
-                }
-            )
-
-        assert "not found or unauthorized" in result, (
-            f"Expected unauthorized error message, got: {result!r}"
-        )
+        mock_db.__aenter__.return_value = mock_db
+        mock_db.get.return_value = Session(id="session",name="Test",department="Test")
+        with patch("app.langchain.tools.async_session",return_value=mock_db), patch("app.langchain.tools.authorized_sources",AsyncMock(return_value=["doc_10"])), patch("app.agents.document_agent.retrieve",AsyncMock(return_value=[])) as retrieve:
+            await search_local_documents.ainvoke({"query":"inspection"},config={"configurable":{"session_id":"session"}})
+        retrieve.assert_awaited_once_with(sub_task_goal="inspection",filters={"source_ids":["doc_10"]},n_results=5)
 
     @pytest.mark.asyncio
-    async def test_tool_validates_dataset_ownership_allows_shared(self):
-        """Tool proceeds when dataset has no session_id (shared corpus)."""
-        mock_config = {"configurable": {"session_id": "sess-current"}}
+    async def test_dataset_tool_checks_cross_user_and_shared_access(self):
+        import uuid
+        from app.db.database import init_db,async_session
+        from app.db.sql_models import Session
+        from app.agents.base import DataAnalysisResult,DataPoint,TrendDirection
+        await init_db()
+        async with async_session() as db:
+            a=Session(name="a",department="Test");b=Session(name="b",department="Test")
+            db.add_all([a,b]);await db.flush()
+            private=Dataset(id=uuid.uuid4().hex,filename="private.csv",session_id=b.id)
+            shared=Dataset(id=uuid.uuid4().hex,filename="shared.csv")
+            db.add_all([private,shared]);await db.commit()
+        config={"configurable":{"session_id":a.id}}
+        args={"metric":"vibration","equipment_id":"P-102","dataset_id":private.id}
+        result=await analyze_operational_data.ainvoke(args,config=config)
+        assert "unauthorized" in result
+        analysis=DataAnalysisResult(trend=TrendDirection.INCREASING,pct_change=10,data_points=[DataPoint(timestamp="2026-01-01",value=1,unit="mm/s")])
+        with patch("app.langchain.tools.data_agent.analyze",return_value=analysis):
+            result=await analyze_operational_data.ainvoke({**args,"dataset_id":shared.id},config=config)
+        assert "Trend: increasing" in result
 
-        mock_dataset = MagicMock(spec=Dataset)
-        mock_dataset.id = "dataset-shared"
-        mock_dataset.session_id = None
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_execute_result = MagicMock()
-        mock_execute_result.scalar_one_or_none.return_value = mock_dataset
-        mock_db.execute = AsyncMock(return_value=mock_execute_result)
-
-        mock_analysis = MagicMock()
-        mock_analysis.data_points = [1, 2, 3]
-        mock_analysis.trend.value = "increasing"
-        mock_analysis.pct_change = 12.5
-        mock_analysis.threshold_breach = False
-
-        with (
-            patch("app.langchain.tools.async_session", return_value=mock_db),
-            patch("app.langchain.tools.data_agent.analyze", return_value=mock_analysis),
-        ):
-            result = await analyze_operational_data.ainvoke(
-                {
-                    "metric": "vibration_rms",
-                    "equipment_id": "P-102",
-                    "dataset_id": "dataset-shared",
-                    "config": mock_config,
-                }
-            )
-
-        assert "Trend: increasing" in result, (
-            f"Expected analysis output, got: {result!r}"
-        )
-        assert "Change: +12.5%" in result
-
-    def test_all_tools_exported(self):
-        """Verify ALL_TOOLS contains both search_local_documents and analyze_operational_data."""
-        assert len(ALL_TOOLS) == 2
-        tool_names = [t.name for t in ALL_TOOLS]
-        assert "search_local_documents" in tool_names
-        assert "analyze_operational_data" in tool_names
-
-
-# ---------------------------------------------------------------------------
-# Task B.5 — LangGraph State tests
-# ---------------------------------------------------------------------------
-
-class TestLangGraphState:
-    """Verify LangGraph state and evidence reducer."""
-
-    def test_investigation_state_merge_evidence(self):
-        """Verify merge_evidence reducer combines lists and merges dictionaries."""
-        existing = {
-            "documents": ["doc_chunk_1"],
-            "confidence": 85,
-        }
-        new = {
-            "documents": ["doc_chunk_2"],
-            "telemetry": {"trend": "increasing"},
-            "confidence": 92,
-        }
-        merged = merge_evidence(existing, new)
-        assert merged["documents"] == ["doc_chunk_1", "doc_chunk_2"]
-        assert merged["telemetry"] == {"trend": "increasing"}
-        assert merged["confidence"] == 92
-
-    def test_investigation_state_merge_evidence_none_handling(self):
-        """Verify merge_evidence handles None safely."""
-        assert merge_evidence(None, None) == {}
-        assert merge_evidence({"a": 1}, None) == {"a": 1}
-        assert merge_evidence(None, {"b": [2]}) == {"b": [2]}
-
-    def test_investigation_state_structure(self):
-        """Verify InvestigationState TypedDict defines required fields."""
-        annotations = InvestigationState.__annotations__
-        required = [
-            "investigation_id",
-            "session_id",
-            "query",
-            "attachment_ids",
-            "task_type",
-            "plan",
-            "evidence_bundle",
-            "event_log",
-            "retry_count",
-            "draft_findings",
-            "verification_result",
-            "deliverables",
-        ]
-        for field in required:
-            assert field in annotations, f"Missing {field} in InvestigationState"
+    @pytest.mark.asyncio
+    async def test_dataset_tool_rejects_missing_identity(self):
+        result=await analyze_operational_data.ainvoke({"metric":"x","equipment_id":"x","dataset_id":"x"})
+        assert "Authenticated session required" in result

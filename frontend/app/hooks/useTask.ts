@@ -10,35 +10,30 @@ export function useTask(taskId: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   const fetchTask = useCallback(async () => {
-    if (!taskId) {
-      setTask(null);
-      setLoading(false);
-      return;
-    }
+    if (!taskId) return;
     try {
-      setLoading(true);
-      setError(null);
       const data = await getTask(taskId);
       setTask(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load task");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load task");
     } finally {
       setLoading(false);
     }
   }, [taskId]);
 
   useEffect(() => {
-    fetchTask();
+    const timer = setTimeout(() => void fetchTask(), 0);
+    return () => clearTimeout(timer);
   }, [fetchTask]);
 
   const reviewTask = async (action: "approve" | "revise" | "reject", comments?: string) => {
     if (!taskId) return;
     try {
-      const updated = await submitTaskReview(taskId, action, comments);
+      const updated = await submitTaskReview(taskId, action, comments, task?.version);
       setTask(updated);
       return updated;
-    } catch (err: any) {
-      setError(err.message || "Failed to submit review");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to submit review");
       throw err;
     }
   };
@@ -49,8 +44,8 @@ export function useTask(taskId: string | null) {
       const res = await sendTaskFollowUp(taskId, message);
       await fetchTask();
       return res;
-    } catch (err: any) {
-      setError(err.message || "Failed to send follow-up");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to send follow-up");
       throw err;
     }
   };

@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import type { ArtifactItem } from "@/app/types";
-import { downloadArtifact } from "@/app/services/fileDownload";
+
 import ModelChip from "./ModelChip";
 
 interface ArtifactCardProps {
@@ -57,13 +57,7 @@ export default function ArtifactCard({
 
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // In production/mock, trigger formatted content download
-    const mockContent =
-      artifact.type === "code"
-        ? `# MRPL Air-Gapped Generated Script\n# Artifact: ${artifact.name}\n\nimport numpy as np\nprint("Harmonics validated on-premise.")\n`
-        : `MRPL Sovereign Deliverable: ${artifact.name}\nGenerated on-premise without external network communication.\n\nSummary:\n${artifact.metadata?.summary || "Engineering assessment."}`;
-
-    downloadArtifact(artifact.name, mockContent);
+    window.location.assign(artifact.download_url);
   };
 
   return (

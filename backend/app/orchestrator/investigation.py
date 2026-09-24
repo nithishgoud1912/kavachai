@@ -31,6 +31,9 @@ from app.agents import verification as verification_agent
 from app.services.report_service import build_report
 from app.db.sql_models import Investigation, Dataset, Document
 from app.config import settings
+from app.access import authorized_sources, owner_filter
+from app.db.sql_models import Session
+from app.db.tabular_store import tabular_store
 
 from sqlalchemy import select
 
@@ -47,6 +50,8 @@ class InvestigationRunner:
         self.events: list[dict] = []
         self._start_time = time.time()
         self.agents_invoked: list[str] = []
+        self.source_ids = []
+        self.session = None
         self.attachments = getattr(self.investigation, "attachments", []) or []
         self.attachment_source_ids = [
             a.get("source_id") for a in self.attachments
@@ -74,6 +79,8 @@ class InvestigationRunner:
         Implements: workflow.md §2 (full Workflow B)
         """
         try:
+            self.session = await self.db.get(Session, self.investigation.session_id)
+            self.source_ids = await authorized_sources(self.session, self.db)
             # --- 1. PLANNER (FR-PLN-1..3) ---
             if self.attachments:
                 self._emit("planner", "working", f"Analyzing query and {len(self.attachments)} attached files/folders...")
@@ -156,7 +163,9 @@ class InvestigationRunner:
                 self._emit("vision_agent", "skipped", "No drawings or visual assets available")
 
             if parallel_tasks:
-                await asyncio.gather(*parallel_tasks, return_exceptions=True)
+                # AsyncSession must not be shared between concurrent queries.
+                for operation in parallel_tasks:
+                    await asyncio.wait_for(operation, timeout=settings.AGENT_TIMEOUT_SECONDS)
 
             # RAG runs after (or alongside — it's independent)
             if rag_tasks:
@@ -172,7 +181,7 @@ class InvestigationRunner:
             # --- 3. SYNTHESIS (FR-SYN-1..3) ---
             self._emit("synthesis", "working", "Synthesizing findings from evidence...")
 
-            draft_findings = await synthesis_agent.synthesize(evidence_bundle)
+            draft_findings = await synthesis_agent.synthesize(evidence_bundle, self.investigation.query)
 
             self._emit("synthesis", "complete",
                        f"Produced {len(draft_findings.findings)} draft findings")
@@ -248,7 +257,7 @@ class InvestigationRunner:
 
             for task in tasks:
                 # Retrieve with equipment and source_id filters
-                filters = {"equipment_ids": self._extract_equipment_ids()}
+                filters = {"equipment_ids": self._extract_equipment_ids(), "source_ids": self.source_ids}
                 if self.attachment_source_ids:
                     filters["source_ids"] = self.attachment_source_ids
 
@@ -297,8 +306,13 @@ class InvestigationRunner:
             self.agents_invoked.append("data_agent")
 
             # Find the dataset
-            result = await self.db.execute(select(Dataset).where(Dataset.status == "ready"))
-            dataset = result.scalar_one_or_none()
+            result = await self.db.execute(select(Dataset).where(Dataset.status == "ready", owner_filter(Dataset, self.session, shared=True)).order_by(Dataset.ingested_at.desc()))
+            datasets = result.scalars().all()
+            equipment = self._extract_equipment_ids()
+            datasets = [d for d in datasets if equipment and tabular_store.get_distinct_metrics(d.table_name, equipment[0])]
+            if len(datasets) > 1:
+                raise ValueError("Multiple datasets match equipment; select a specific dataset before analysis")
+            dataset = datasets[0] if datasets else None
 
             if not dataset:
                 # workflow.md §7: Data Agent no-rows → drop data sub-finding
@@ -338,7 +352,7 @@ class InvestigationRunner:
                 ))
 
                 self._emit("data_agent", "complete",
-                           f"Computed trend: {analysis.trend.value} ({analysis.pct_change:+.0f}%)")
+                           f"Computed trend: {analysis.trend.value} (percentage change: {analysis.pct_change})")
             else:
                 self._emit("data_agent", "skipped", "No data found for this equipment")
 
@@ -355,7 +369,7 @@ class InvestigationRunner:
             equip_id = equipment_ids[0] if equipment_ids else "P-102"
 
             # Dynamically resolve P&ID source ID from attachments or DB
-            pid_source_id = "pid_101"
+            pid_source_id = None
             if self.attachment_source_ids:
                 for sid in self.attachment_source_ids:
                     att = next((a for a in self.attachments if isinstance(a, dict) and a.get("source_id") == sid), None)
@@ -364,17 +378,20 @@ class InvestigationRunner:
                         pid_source_id = sid
                         break
 
-            if pid_source_id == "pid_101":
+            if not pid_source_id:
                 doc_query = await self.db.execute(
                     select(Document).where(
                         Document.status == "ready",
                         Document.document_type == "pid_drawing",
+                        Document.source_id.in_(self.source_ids),
                     ).limit(1)
                 )
                 pid_doc = doc_query.scalar_one_or_none()
                 if pid_doc:
                     pid_source_id = pid_doc.source_id
 
+            if not pid_source_id or pid_source_id not in self.source_ids:
+                return
             result = await vision_agent.analyze_pid(
                 pid_source_id=pid_source_id,
                 equipment_id=equip_id,
@@ -420,6 +437,7 @@ class InvestigationRunner:
                 specs = await rag_agent.retrieve_spec(
                     query=task.goal,
                     equipment_id=equip_id,
+                    filters={"source_ids": self.source_ids},
                 )
                 all_specs.extend(specs)
 
@@ -462,17 +480,18 @@ class InvestigationRunner:
         from sqlalchemy import func
 
         doc_count = (await self.db.execute(
-            select(func.count(Document.id)).where(Document.status == "ready")
+            select(func.count(Document.id)).where(Document.status == "ready", Document.source_id.in_(self.source_ids))
         )).scalar() or 0
 
         ds_count = (await self.db.execute(
-            select(func.count(DatasetModel.id)).where(DatasetModel.status == "ready")
+            select(func.count(DatasetModel.id)).where(DatasetModel.status == "ready", owner_filter(DatasetModel, self.session, shared=True))
         )).scalar() or 0
 
         pid_count = (await self.db.execute(
             select(func.count(Document.id)).where(
                 Document.status == "ready",
                 Document.document_type == "pid_drawing",
+                        Document.source_id.in_(self.source_ids),
             )
         )).scalar() or 0
 
@@ -500,7 +519,7 @@ class InvestigationRunner:
 
         equipment_ids = self._extract_equipment_ids()
         equip_id = equipment_ids[0] if equipment_ids else "P-102"
-        return await vision_agent.get_connection_chain(equip_id)
+        return None
 
     async def _insufficient_evidence(self, message: str) -> dict:
         """Handle the insufficient_evidence terminal state."""

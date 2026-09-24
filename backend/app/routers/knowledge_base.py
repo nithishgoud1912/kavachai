@@ -12,6 +12,9 @@ Endpoints: API_Reference.md §3
 """
 
 import uuid
+from pathlib import Path
+from app.access import assert_owner, owner_filter
+from app.ingestion.limits import read_upload
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -22,7 +25,7 @@ from app.db.sql_models import Document, Dataset, Session as SessionModel
 from app.db.object_store import object_store
 from app.db.vector_store import vector_store
 from app.db.graph_store import graph_store
-from app.ingestion.extract import extract_text, get_page_count
+from app.ingestion.extract import extract_text_with_ocr, get_page_count
 from app.ingestion.chunk import chunk_pages
 from app.ingestion.tag import tag_chunks
 from app.ingestion.embed import generate_embeddings
@@ -39,14 +42,6 @@ from app.models.ingestion import (
 from app.deps import Principal, get_current_session, require_permission
 
 router = APIRouter(prefix="/api/v1/knowledge-base", tags=["knowledge-base"])
-
-
-def _assert_document_scope(doc: Document, principal: Principal, session: SessionModel) -> None:
-    """Enforce owner and department scope before returning document metadata/content."""
-    if doc.session_id and doc.session_id != session.id:
-        raise HTTPException(status_code=403, detail="Document is outside this session scope")
-    if doc.department_scope and doc.department_scope.strip().lower() != principal.department.strip().lower():
-        raise HTTPException(status_code=403, detail="Document is outside this department scope")
 
 
 @router.post("/documents", response_model=DocumentUploadResponse, status_code=202)
@@ -77,9 +72,9 @@ async def upload_document(
         except json.JSONDecodeError:
             equip_ids = [equipment_ids]
 
-    safe_filename = Path(file.filename.replace("\\", "/")).name or "file"
-    source_id = f"doc_{uuid.uuid4().hex[:8]}"
-    file_content = await file.read()
+    safe_filename = Path((file.filename or "file").replace("\\", "/")).name or "file"
+    source_id = f"doc_{uuid.uuid4().hex}"
+    file_content = await read_upload(file)
 
     # Save raw file to object store (FR-ING-6)
     object_store.save_raw_file(source_id, file_content, safe_filename)
@@ -103,7 +98,7 @@ async def upload_document(
     # Run ingestion pipeline (FR-ING-2..5)
     try:
         # Extract text (FR-ING-2)
-        pages = extract_text(file_content, safe_filename)
+        pages = await extract_text_with_ocr(file_content, safe_filename)
 
         if pages:
             # Chunk text (FR-ING-3)
@@ -129,8 +124,7 @@ async def upload_document(
             doc.chunks = len(tagged_chunks)
         else:
             # No text extracted (might be an image/PID)
-            doc.status = "ready"
-            doc.chunks = 0
+            raise ValueError("No readable content; check local OCR/vision models")
 
         await db.commit()
 
@@ -161,7 +155,7 @@ async def get_document(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    _assert_document_scope(doc, principal, current_session)
+    await assert_owner(doc, current_session, db, shared=True)
 
     return DocumentDetailResponse(
         document_id=doc.id,
@@ -186,9 +180,9 @@ async def upload_dataset(
     Upload a structured time-series dataset.
     Implements: FR-ING-7
     """
-    safe_filename = Path(file.filename.replace("\\", "/")).name or "file"
-    dataset_id = f"ds_{uuid.uuid4().hex[:4]}"
-    file_content = await file.read()
+    safe_filename = Path((file.filename or "file").replace("\\", "/")).name or "file"
+    dataset_id = f"ds_{uuid.uuid4().hex}"
+    file_content = await read_upload(file)
 
     # Save raw file to object store
     source_id = dataset_id
@@ -236,6 +230,7 @@ async def get_summary(
     doc_result = await db.execute(
         select(func.count(Document.id)).where(
             Document.status == "ready",
+            owner_filter(Document, current_session, shared=True),
             Document.document_type != "pid_drawing",
         )
     )
@@ -245,6 +240,7 @@ async def get_summary(
     pid_result = await db.execute(
         select(func.count(Document.id)).where(
             Document.status == "ready",
+            owner_filter(Document, current_session, shared=True),
             Document.document_type == "pid_drawing",
         )
     )
@@ -252,7 +248,7 @@ async def get_summary(
 
     # Count datasets
     ds_result = await db.execute(
-        select(func.count(Dataset.id)).where(Dataset.status == "ready")
+        select(func.count(Dataset.id)).where(Dataset.status == "ready", owner_filter(Dataset, current_session, shared=True))
     )
     ds_count = ds_result.scalar() or 0
 
@@ -263,46 +259,46 @@ async def get_summary(
     )
 
 
-# --- Equipment Graph Management Endpoints ---
+# Equipment metadata is persisted per owner and department; it is not visual evidence.
+async def _equipment_graph(db, session, write=False):
+    from sqlalchemy import text
+    from app.db.sql_models import SystemSetting
+    if write:
+        await db.commit()
+        await db.execute(text("BEGIN IMMEDIATE"))
+    key = f"equipment_graph:{session.user_id or session.id}:{session.department.casefold()}"
+    record = await db.get(SystemSetting, key)
+    if record is None:
+        record = SystemSetting(key=key, value={"nodes": [], "edges": []})
+        if write: db.add(record)
+    return record
 
 @router.post("/graph/nodes", status_code=201)
-async def add_graph_node(
-    body: GraphNodeCreate,
-    current_session: SessionModel = Depends(get_current_session),
-    _: Principal = Depends(require_permission("knowledge_base:manage")),
-):
-    """Add or update an equipment node in the topological graph."""
-    graph_store.add_node(
-        equipment_id=body.equipment_id,
-        equipment_type=body.equipment_type,
-        label=body.label,
-    )
-    return {"status": "created", "node": graph_store.get_equipment_info(body.equipment_id)}
-
+async def add_graph_node(body: GraphNodeCreate, current_session=Depends(get_current_session),
+                         principal=Depends(require_permission("knowledge_base:manage")), db=Depends(get_db)):
+    record = await _equipment_graph(db, current_session, write=True)
+    node = {"id": body.equipment_id, "equipment_type": body.equipment_type, "label": body.label or body.equipment_id}
+    record.value = {**record.value, "nodes": [n for n in record.value['nodes'] if n['id'] != body.equipment_id] + [node]}
+    await db.commit()
+    return {"status": "created", "node": node}
 
 @router.post("/graph/edges", status_code=201)
-async def add_graph_edge(
-    body: GraphEdgeCreate,
-    current_session: SessionModel = Depends(get_current_session),
-    _: Principal = Depends(require_permission("knowledge_base:manage")),
-):
-    """Add or update a directed relationship edge between equipment nodes."""
-    graph_store.add_edge(
-        from_id=body.from_id,
-        to_id=body.to_id,
-        relationship=body.relationship,
-        label=body.label,
-    )
-    return {"status": "created", "edge": {"from": body.from_id, "to": body.to_id, "relationship": body.relationship}}
-
+async def add_graph_edge(body: GraphEdgeCreate, current_session=Depends(get_current_session),
+                         principal=Depends(require_permission("knowledge_base:manage")), db=Depends(get_db)):
+    record = await _equipment_graph(db, current_session, write=True)
+    ids = {n['id'] for n in record.value['nodes']}
+    if body.from_id not in ids or body.to_id not in ids:
+        await db.rollback()
+        raise HTTPException(422, "Create both equipment nodes before their relationship")
+    edge = {"from": body.from_id, "to": body.to_id, "relationship": body.relationship,
+            "label": body.label or body.relationship}
+    record.value = {**record.value, "edges": [e for e in record.value['edges']
+        if (e['from'], e['to']) != (body.from_id, body.to_id)] + [edge]}
+    await db.commit()
+    return {"status": "created", "edge": edge}
 
 @router.get("/graph", response_model=GraphResponse)
-async def get_graph(
-    current_session: SessionModel = Depends(get_current_session),
-    _: Principal = Depends(require_permission("workspace:read")),
-):
-    """Retrieve full equipment relationship graph."""
-    return GraphResponse(
-        nodes=graph_store.get_all_nodes(),
-        edges=graph_store.get_all_edges(),
-    )
+async def get_graph(current_session=Depends(get_current_session),
+                    principal=Depends(require_permission("workspace:read")), db=Depends(get_db)):
+    record = await _equipment_graph(db, current_session)
+    return GraphResponse(**record.value)

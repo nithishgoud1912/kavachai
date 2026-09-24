@@ -117,7 +117,8 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 async def verify_mfa(body: MfaVerifyRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Session).where(Session.id == body.session_id))
     session = result.scalar_one_or_none()
-    if not session or session.is_revoked or not session.user_id:
+    if (not session or session.is_revoked or not session.user_id or session.mfa_verified
+            or not session.expires_at or session.expires_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc)):
         raise HTTPException(status_code=401, detail="Invalid authentication challenge")
     result = await db.execute(select(User).where(User.id == session.user_id))
     user = result.scalar_one_or_none()
@@ -127,6 +128,7 @@ async def verify_mfa(body: MfaVerifyRequest, db: AsyncSession = Depends(get_db))
         await append_security_event(db, event_type="MFA_FAILURE", outcome="denied", actor_user_id=session.user_id, session_id=session.id)
         raise HTTPException(status_code=401, detail="Invalid MFA code")
     session.mfa_verified = True
+    session.last_seen_at = datetime.now(timezone.utc)
     session.expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.SESSION_MAX_HOURS)
     await db.commit()
     await append_security_event(db, event_type="LOGIN_SUCCESS", outcome="success", actor_user_id=user.id, session_id=session.id, department=user.department)

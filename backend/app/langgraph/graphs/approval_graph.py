@@ -120,29 +120,22 @@ async def generate_final_node(state: ApprovalState) -> dict:
             state["investigation_id"],
             content,
         )
-        return {"final_docx_url": url}
+        return {"final_docx_url": f"/api/v1/exports/{state['investigation_id']}/docx"}
     except Exception as e:
         logger.error("Final DOCX generation failed: %s", e)
-        return {"final_docx_url": None}
+        raise RuntimeError("Approved artifact generation failed") from e
 
 
 async def audit_log_node(state: ApprovalState) -> dict:
-    """Log the approval action to the immutable audit trail."""
-    try:
-        from app.db.database import async_session
-        from app.services.audit_service import resolve_audit_entry
-
-        async with async_session() as db:
-            await resolve_audit_entry(
-                db=db,
-                investigation_id=state["investigation_id"],
-                agents_invoked=["approval_graph"],
-                verification_status="approved",
-                confidence=100,
-                status="completed",
-            )
-    except Exception as e:
-        logger.error("Audit log failed: %s", e)
+    from app.db.database import async_session
+    from app.services.security_audit import append_security_event
+    from app.db.sql_models import Session
+    async with async_session() as db:
+        session = await db.get(Session, state['session_id'])
+        await append_security_event(db, event_type="APPROVAL_DECISION", outcome=str(state.get('approval_status')),
+                                    actor_user_id=session.user_id if session else None,
+                                    resource_type="investigation", resource_id=state['investigation_id'],
+                                    detail={"version":state['draft_version'], "artifact":state.get('final_docx_url')})
     return {}
 
 
@@ -174,7 +167,7 @@ def build_approval_graph(checkpointer):
 
     graph.add_conditional_edges("human_review", route_after_review, {
         ApprovalAction.APPROVED: "generate_final",
-        ApprovalAction.REJECTED: END,
+        ApprovalAction.REJECTED: "audit_log",
         ApprovalAction.CONFLICT: "handle_conflict",
     })
     graph.add_edge("handle_conflict", "draft_note")

@@ -35,6 +35,8 @@ async def retrieve(
     Returns:
         List of DocumentChunk with traceable source references
     """
+    if not filters or not filters.get("source_ids"):
+        return []
     # Generate embedding for the query (through Model Router)
     query_embeddings = await model_router.embed([sub_task_goal])
     if not query_embeddings:
@@ -65,6 +67,9 @@ async def retrieve(
             matches_eq = bool(target_eids & chunk_eids) or any(eid in r["chunk_text"] for eid in target_eids)
 
         score = r.get("score", 0.0)
+        from app.config import settings
+        if chunk_sid not in target_sids or score < settings.RETRIEVAL_MIN_SCORE:
+            continue
         if matches_eq:
             score += 0.5  # boost matching equipment chunks
         if target_sids and chunk_sid in target_sids:

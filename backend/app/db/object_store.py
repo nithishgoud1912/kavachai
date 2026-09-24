@@ -25,7 +25,14 @@ class ObjectStore:
 
     def _file_path(self, source_id: str) -> Path:
         """Get the filesystem path for a source_id."""
-        return self.base_path / source_id
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", source_id):
+            raise ValueError("Invalid source identifier")
+        root = self.base_path.resolve()
+        path = (root / source_id).resolve()
+        if path.parent != root:
+            raise ValueError("Source path escapes object store")
+        return path
 
     def save_raw_file(self, source_id: str, file_content: bytes, filename: str) -> str:
         """

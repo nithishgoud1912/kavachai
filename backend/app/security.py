@@ -27,7 +27,7 @@ class Role(StrEnum):
 ROLE_PERMISSIONS: dict[Role, set[str]] = {
     Role.ADMIN: {
         "users:manage", "roles:manage", "workspace:manage", "models:manage",
-        "sandbox:manage", "configuration:manage", "audit:manage",
+        "sandbox:manage", "configuration:manage", "audit:manage", "audit:read",
     },
     Role.WORKBENCH_USER: {
         "workspace:read", "chat:write", "investigation:write", "document:upload",

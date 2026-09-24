@@ -5,7 +5,7 @@ import type { RoutingRule } from "@/app/types";
 
 interface RoutingRulesPanelProps {
   rules: RoutingRule[];
-  onSaveRule?: (rule: RoutingRule) => Promise<any> | any;
+  onSaveRule?: (rule: RoutingRule) => Promise<unknown> | unknown;
   className?: string;
 }
 

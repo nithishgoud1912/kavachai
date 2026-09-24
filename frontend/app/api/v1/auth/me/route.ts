@@ -1,8 +1,3 @@
-import { NextResponse } from "next/server";
-import { proxyOrFallback } from "../../proxy";
+import { proxyToBackend } from "@/app/api/v1/proxy";
 
-export async function GET(req: Request) {
-  return proxyOrFallback("/auth/me", req, () => NextResponse.json(
-    { detail: "Local authentication service is unavailable." }, { status: 503 }
-  ));
-}
+export async function GET(req: Request) { return proxyToBackend(req); }

@@ -58,3 +58,15 @@ async def test_planner_out_of_scope_refusal(sample_corpus):
 
     assert plan.is_in_scope is False
     assert len(plan.sub_tasks) == 0
+
+
+@pytest.fixture(autouse=True)
+def local_model_boundary(monkeypatch):
+    import json
+    from unittest.mock import AsyncMock
+    async def generate(**kwargs):
+        prompt=kwargs['prompt']
+        out='current price of crude oil' in prompt
+        agents=['document_agent','rag_agent']
+        return json.dumps({'is_in_scope':not out,'sub_tasks':[] if out else [{'agent':a,'goal':'Retrieve relevant evidence'} for a in agents]})
+    monkeypatch.setattr(planner.model_router,'generate',generate)

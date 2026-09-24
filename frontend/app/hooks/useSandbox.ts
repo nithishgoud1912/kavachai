@@ -18,8 +18,8 @@ export function useSandbox() {
       setLastResult(result);
       setHistory((prev) => [result, ...prev]);
       return result;
-    } catch (err: any) {
-      setError(err.message || "Failed to execute code in sandbox");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to execute code in sandbox");
       throw err;
     } finally {
       setRunning(false);

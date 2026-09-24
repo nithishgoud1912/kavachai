@@ -2,7 +2,7 @@
 
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { loginWithPassword, verifyLocalMfa, type LocalAuthResponse } from "@/app/services/api";
+import { loginWithPassword, verifyLocalMfa, createSession, type LocalAuthResponse } from "@/app/services/api";
 import { useSession } from "@/app/hooks/useSession";
 import SovereignBadge from "./components/SovereignBadge";
 import NetworkStatusPill from "./components/NetworkStatusPill";
@@ -54,37 +54,48 @@ export default function LoginPage() {
         if (!pendingAuth.session_id) throw new Error("Authentication challenge is unavailable.");
         result = await verifyLocalMfa(pendingAuth.session_id, mfaCode);
       } else {
-        // Attempt backend login, fallback to demo local session
-        try {
-          result = await loginWithPassword(username.trim() || "analyst", password || "KavachAI_Analyst_2026!");
-          if (result.mfa_required) {
-            setPendingAuth(result);
-            setMfaCode("");
-            return;
-          }
-        } catch {
-          // Local offline fallback session
-          result = {
-            session_id: `session-${Date.now().toString(36)}`,
-            username: username.trim() || "Refinery Engineer",
-            department: department,
-            mfa_required: false,
-            roles: [role || "analyst"],
-            expires_at: new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString(),
-          };
+        result = await loginWithPassword(
+          username.trim() || "operations_lead",
+          password || "KavachAI_Analyst_2026!"
+        );
+        if (result.mfa_required) {
+          setPendingAuth(result);
+          setMfaCode("");
+          return;
         }
       }
 
+      if (!result.session_id) {
+        throw new Error("Authentication succeeded but no session ID was returned.");
+      }
+
       login({
-        session_id: result.session_id || `session-${Date.now()}`,
-        name: result.username || username.trim() || "Refinery Engineer",
+        session_id: result.session_id,
+        name: result.username || username.trim() || "Operations Lead",
         department: result.department || department,
         issued_at: new Date().toISOString(),
-        expires_at: result.expires_at,
+        expires_at: result.expires_at || undefined,
       });
       router.push("/workspace");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to authenticate.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleQuickDemo() {
+    setLoading(true);
+    setError(null);
+    try {
+      const demoSession = await createSession(
+        username.trim() || "Operations Lead",
+        department
+      );
+      login(demoSession);
+      router.push("/workspace");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to initiate demo session.");
     } finally {
       setLoading(false);
     }
@@ -243,6 +254,23 @@ export default function LoginPage() {
             ) : (
               <span>Access Sovereign Workbench →</span>
             )}
+          </button>
+
+          <div className="relative flex py-1 items-center">
+            <div className="flex-grow border-t border-border-subtle"></div>
+            <span className="flex-shrink mx-3 text-text-3 font-mono text-[10px] uppercase tracking-wider">
+              Or Instant Demo Mode
+            </span>
+            <div className="flex-grow border-t border-border-subtle"></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleQuickDemo}
+            disabled={loading}
+            className="w-full py-2.5 rounded-xl border border-border text-text-1 hover:bg-surface-elevated font-medium text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>⚡ Launch Quick Guest Session (No Password)</span>
           </button>
         </form>
 

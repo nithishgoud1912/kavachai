@@ -84,6 +84,18 @@ async def get_current_session(
     if session.user_id and not getattr(session, "mfa_verified", False):
         raise HTTPException(status_code=401, detail="Multi-factor verification required")
 
+    if session.user_id:
+        user = await db.get(User, session.user_id)
+        if not user or not user.is_active:
+            raise HTTPException(401, "User account unavailable")
+    elif not settings.ALLOW_DEMO_SESSIONS:
+        raise HTTPException(401, "Authenticated user required")
+    now = datetime.now(timezone.utc)
+    last = session.last_seen_at or session.issued_at
+    if last and (now - last.replace(tzinfo=timezone.utc)).total_seconds() > settings.SESSION_IDLE_MINUTES * 60:
+        raise HTTPException(401, "Session idle timeout")
+    session.last_seen_at = now
+    await db.commit()
     return session
 
 

@@ -71,6 +71,7 @@ class Session(Base):
     name = Column(String, nullable=False)
     department = Column(String, nullable=False)  # FR-ACC-2: department for permission-aware retrieval
     issued_at = Column(DateTime, default=utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=utcnow, nullable=True)
     expires_at = Column(DateTime, nullable=True)
     is_revoked = Column(Boolean, default=False, nullable=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
@@ -118,6 +119,7 @@ class Document(Base):
     pages = Column(Integer, nullable=True)
     chunks = Column(Integer, default=0)
     equipment_ids = Column(JSON, default=list)  # e.g. ["P-102"]
+    classification = Column(String, nullable=False, default="internal")
     department_scope = Column(String, nullable=True)  # FR-RAG-2: permission-aware retrieval
     session_id = Column(String, ForeignKey("sessions.id"), nullable=True)  # Task 3.1: session ownership
     ingested_at = Column(DateTime, default=utcnow, nullable=False)
@@ -256,3 +258,19 @@ class ChatMessage(Base):
     __table_args__ = (
         Index("ix_chat_messages_conversation", "conversation_id"),
     )
+
+
+class WorkbenchJob(Base):
+    __tablename__ = "workbench_jobs"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    session_id = Column(String, ForeignKey("sessions.id"), nullable=False, index=True)
+    status = Column(String, nullable=False, default="queued")
+    payload = Column(JSON, nullable=False, default=dict)
+    events = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key = Column(String, primary_key=True)
+    value = Column(JSON, nullable=False)
