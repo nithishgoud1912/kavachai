@@ -13,9 +13,33 @@ Supported task_types: "text_reasoning", "classification", "embedding", "vision"
 """
 
 import httpx
+import logging
 from typing import Optional, List, Dict, Any
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def prepare_vision_image(image_bytes: bytes) -> bytes:
+    """Bound image token cost on CPU deployments while preserving aspect ratio."""
+    import io
+    from PIL import Image, ImageOps
+    with Image.open(io.BytesIO(image_bytes)) as source:
+        if source.width * source.height > 40000000:
+            raise ValueError('Vision image exceeds the 40 megapixel processing limit')
+        image = ImageOps.exif_transpose(source)
+        image.thumbnail((settings.VISION_MAX_IMAGE_EDGE, settings.VISION_MAX_IMAGE_EDGE), Image.Resampling.LANCZOS)
+        if image.mode in ('RGBA', 'LA') or 'transparency' in image.info:
+            rgba = image.convert('RGBA')
+            background = Image.new('RGBA', rgba.size, 'white')
+            background.alpha_composite(rgba)
+            image = background.convert('RGB')
+        else:
+            image = image.convert('RGB')
+        buffer = io.BytesIO()
+        image.save(buffer, format='PNG')
+        return buffer.getvalue()
 
 
 class ModelRouter:
@@ -34,7 +58,7 @@ class ModelRouter:
         if host.scheme not in ("http", "https") or host.hostname not in settings.ALLOWED_INFERENCE_HOSTS.split(",") or host.username or host.password:
             raise ValueError("Inference endpoint must be in ALLOWED_INFERENCE_HOSTS")
         self._base_url = settings.OLLAMA_HOST
-        self._client = httpx.AsyncClient(
+        self._client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=self._base_url,
             trust_env=False,
             timeout=httpx.Timeout(settings.LLM_TIMEOUT_SECONDS, connect=5.0),
@@ -50,19 +74,31 @@ class ModelRouter:
             "coding": settings.CODING_MODEL,            # Qwen 2.5 3B — coding / tool invocation
         }
 
+    @property
+    def client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self._base_url,
+                trust_env=False,
+                timeout=httpx.Timeout(settings.LLM_TIMEOUT_SECONDS, connect=5.0),
+            )
+        return self._client
+
     async def is_ollama_available(self) -> bool:
         """Quick check if Ollama server is reachable."""
         import time
         now = time.time()
-        if self._ollama_online is not None and (now - self._last_ping) < 5.0:
-            return self._ollama_online
+        if self._ollama_online is True and (now - self._last_ping) < 5.0:
+            return True
 
         self._last_ping = now
         try:
-            resp = await self._client.get("/api/tags", timeout=5.0)
+            resp = await self.client.get("/api/tags", timeout=5.0)
             self._ollama_online = (resp.status_code == 200)
-        except Exception:
+        except Exception as e:
+            logger.warning("Ollama ping check failed: %s: %s", type(e).__name__, e)
             self._ollama_online = False
+            self._last_ping = 0.0
         return self._ollama_online
 
 
@@ -117,6 +153,7 @@ class ModelRouter:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": settings.LLM_CONTEXT_TOKENS,
             },
         }
 
@@ -127,12 +164,13 @@ class ModelRouter:
             payload["format"] = format
 
         try:
-            resp = await self._client.post("/api/generate", json=payload)
+            resp = await self.client.post("/api/generate", json=payload)
             resp.raise_for_status()
             data = resp.json()
             return data.get("response", "")
         except Exception as e:
-            return self._offline_generate(prompt, task_type, format)
+            logger.error("Ollama generate call failed: %s: %s", type(e).__name__, e)
+            return self._offline_generate(prompt, task_type, format, error=e)
 
     async def generate_chat(
         self,
@@ -164,6 +202,7 @@ class ModelRouter:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": settings.LLM_CONTEXT_TOKENS,
             },
         }
 
@@ -171,13 +210,14 @@ class ModelRouter:
             payload["format"] = format
 
         try:
-            resp = await self._client.post("/api/chat", json=payload)
+            resp = await self.client.post("/api/chat", json=payload)
             resp.raise_for_status()
             data = resp.json()
             return data.get("message", {}).get("content", "")
         except Exception as e:
+            logger.error("Ollama chat call failed: %s: %s", type(e).__name__, e)
             last_msg = messages[-1]["content"] if messages else ""
-            return self._offline_generate(last_msg, task_type, format)
+            return self._offline_generate(last_msg, task_type, format, error=e)
 
     async def generate_chat_with_tools(
         self,
@@ -224,7 +264,7 @@ class ModelRouter:
         }
 
         try:
-            resp = await self._client.post("/api/chat", json=payload)
+            resp = await self.client.post("/api/chat", json=payload)
             resp.raise_for_status()
             data = resp.json()
             msg = data.get("message", {})
@@ -260,7 +300,9 @@ class ModelRouter:
         if not await self.is_ollama_available():
             return self._offline_generate(prompt, "vision", format)
 
-        b64_img = base64.b64encode(image_bytes).decode("utf-8")
+        import asyncio
+        prepared_image = await asyncio.to_thread(prepare_vision_image, image_bytes)
+        b64_img = base64.b64encode(prepared_image).decode("utf-8")
         payload: Dict[str, Any] = {
             "model": model,
             "messages": [
@@ -284,7 +326,7 @@ class ModelRouter:
             payload["format"] = format
 
         try:
-            resp = await self._client.post(
+            resp = await self.client.post(
                 "/api/chat",
                 json=payload,
                 timeout=httpx.Timeout(settings.VISION_TIMEOUT_SECONDS, connect=2.0),
@@ -316,7 +358,7 @@ class ModelRouter:
             raise RuntimeError("Local embedding model unavailable; ingestion aborted")
 
         try:
-            resp = await self._client.post(
+            resp = await self.client.post(
                 "/api/embed",
                 json={"model": model, "input": texts},
                 timeout=30.0,
@@ -332,12 +374,14 @@ class ModelRouter:
         raise RuntimeError("Embedding request failed; no synthetic vectors stored")
 
 
-    def _offline_generate(self, prompt, task_type, fmt):
-        raise RuntimeError(f"Local inference failed for {task_type}; no fallback evidence is generated")
+    def _offline_generate(self, prompt, task_type, fmt, error: Optional[Exception] = None):
+        err_msg = f": {type(error).__name__}: {error}" if error else ""
+        raise RuntimeError(f"Local inference failed for {task_type}{err_msg}; no fallback evidence is generated")
 
     async def close(self):
         """Close the HTTP client."""
-        await self._client.aclose()
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
 
 
 # Singleton instance

@@ -18,6 +18,27 @@ def _source_text(finding):
     return "; ".join(f"{e.get('source_id', '')} page {e.get('page', 'n/a')}" for e in finding.get("evidence", [])) or "No source recorded"
 
 
+def _specialist_sections(report):
+    """Keep original specialist results in exports even when synthesis omits them."""
+    sections = []
+    for item in report.get('visual_observations', []):
+        sections.append(('Visual observation - human comparison required',
+                         f"Source: {item['filename']} / {item['source_id']}, page {item['page']}\n{item['observation']}"))
+    for table in report.get('calculation_results', []):
+        lines = [f"Source: {table['filename']} / {table['source_id']}; {table['table']}; page {table.get('page') or 'n/a'}",
+                 'Calculated from original table rows by the bounded local calculator. Units follow the column headers.']
+        for metric in table['results']:
+            line = f"{metric['column']} - {metric['operation']}: {metric['value']}; valid rows: {metric['valid_rows']}; missing: {metric['missing_rows']}"
+            if metric.get('formula'):
+                line += f". Formula: {metric['formula']}; {metric['first_date']} ({metric['first_value']}) to {metric['last_date']} ({metric['last_value']}); result in percent."
+            if metric.get('matching_rows'):
+                line += f". Matching source rows: {metric['matching_rows']}"
+            lines.append(line)
+        lines.append(table['limitations'])
+        sections.append(('Calculated source data - review applicability', '\n'.join(lines)))
+    return sections
+
+
 def _docx(investigation_id, content, report):
     from docx import Document
     from docx.shared import Pt
@@ -33,6 +54,9 @@ def _docx(investigation_id, content, report):
         doc.add_heading(str(finding.get('title', 'Finding')), 2)
         doc.add_paragraph(str(finding.get('detail', '')))
         doc.add_paragraph(f"Status: {finding.get('verification_status', 'unverified')}. Sources: {_source_text(finding)}")
+    for title, detail in _specialist_sections(report):
+        doc.add_heading(title, 2)
+        doc.add_paragraph(detail)
     doc.add_heading("Conclusion", 2)
     doc.add_paragraph(content or report.get('conclusion') or "No conclusion supplied.")
     if report.get('recommendations'):
@@ -56,6 +80,13 @@ def _xlsx(investigation_id, report):
     ws.append(['Title', 'Detail', 'Verification', 'Sources'])
     for f in report.get('findings', []):
         ws.append([str(f.get('title', '')), str(f.get('detail', '')), str(f.get('verification_status', 'unverified')), _source_text(f)])
+    if _specialist_sections(report):
+        specialist = wb.create_sheet('Specialist evidence')
+        specialist.append(['Analysis', 'Source and results'])
+        for title, detail in _specialist_sections(report):
+            specialist.append([title, detail])
+            for cell in specialist[specialist.max_row]:
+                cell.data_type = 's'
     telemetry = wb.create_sheet('Telemetry')
     telemetry.append(['Timestamp', 'Value', 'Unit'])
     for point in report.get('telemetry_trend') or []:
@@ -91,6 +122,7 @@ def _pptx(investigation_id, report):
     presentation = Presentation()
     sections = [('Investigation briefing', report.get('query', ''))]
     sections.extend((str(f.get('title', 'Finding')), str(f.get('detail', '')) + '\nSources: ' + _source_text(f)) for f in report.get('findings', []))
+    sections.extend(_specialist_sections(report))
     sections.append(('Conclusion - pending human review', report.get('conclusion', 'No conclusion supplied.')))
     for title, text in sections:
         # Split long findings into separate slides instead of overflowing a text box.

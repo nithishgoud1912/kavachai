@@ -25,7 +25,8 @@ You receive a structured evidence bundle gathered by specialist agents and must 
 Rules:
 1. ONLY use information present in the evidence bundle. Do NOT invent facts.
 2. NEVER perform arithmetic or numeric calculations — the Data Agent has already computed all trends and percentages. Quote those numbers exactly as given.
-3. Each finding must reference which evidence item(s) support it.
+3. Each finding must reference which evidence item(s) support it. Cite the short IDs
+   such as E1 exactly as shown in the evidence bundle; do not invent reference IDs.
 4. Produce separate, distinct findings for each type of evidence present:
    - Generate finding(s) for Document Evidence (inspection/maintenance reports).
    - Generate finding(s) for Data Analysis (sensor operating trends, percentage changes, threshold breaches).
@@ -33,6 +34,10 @@ Rules:
 5. Generate distinct findings for each operational trend, threshold breach, and inspection observation. Aim for at least 2 distinct findings when multiple evidence sources exist. Do NOT collapse separate evidence types into a single combined finding.
 6. Be precise and technical. Use specific values, not vague language.
 7. If the evidence is insufficient for a confident conclusion, say so explicitly.
+8. Keep assets, filenames and observation periods separate. Do not treat different
+   assets or date ranges as one series. Quote COMPUTED DATA exactly; do not invent
+   threshold-crossing dates or a causal diagnosis. Visual observations are model
+   interpretations requiring comparison with the source image.
 
 Respond with ONLY valid JSON in this exact format:
 {
@@ -117,8 +122,21 @@ def _format_evidence_bundle(bundle: EvidenceBundle) -> str:
 
     if bundle.document_findings:
         parts.append("DOCUMENT EVIDENCE:")
+        excerpt_limit = max(200, min(4000, 12000 // len(bundle.document_findings)))
+        used_items: set[int] = set()
         for doc in bundle.document_findings:
-            parts.append(f"  - Source {doc.source_id} (p.{doc.page}): {doc.chunk_text[:4000]}")
+            item_index = next((i for i, item in enumerate(bundle.evidence_items)
+                               if i not in used_items and item.source_id == doc.source_id
+                               and (item.page is None or item.page == doc.page)), None)
+            if item_index is not None:
+                used_items.add(item_index)
+                evidence_id = f"E{item_index + 1}"
+            else:
+                evidence_id = doc.source_id
+            excerpt = doc.chunk_text[:excerpt_limit]
+            if len(doc.chunk_text) > excerpt_limit:
+                excerpt += ' [Excerpt truncated; no claim about omitted content.]'
+            parts.append(f"  - [{evidence_id}] Source {doc.source_id} (p.{doc.page}): {excerpt}")
 
     if bundle.data_findings:
         df = bundle.data_findings
@@ -160,8 +178,16 @@ def _resolve_evidence_refs(refs: list[str], bundle: EvidenceBundle) -> list[Evid
                       for d in bundle.document_findings + bundle.spec_findings]
     matched = []
     for ref in refs:
+        ref = str(ref).strip()
+        # Short stable IDs are easier for local models to reproduce than long,
+        # opaque source hashes. Keep exact source/label matching for old prompts.
+        if ref[:1].upper() == "E" and ref[1:].isdigit():
+            index = int(ref[1:]) - 1
+            if 0 <= index < len(candidates) and candidates[index] not in matched:
+                matched.append(candidates[index])
+                continue
         for item in candidates:
-            if ref in (item.source_id, item.label) and item not in matched:
+            if ref.casefold() in (item.source_id.casefold(), item.label.casefold()) and item not in matched:
                 matched.append(item)
     return matched
 

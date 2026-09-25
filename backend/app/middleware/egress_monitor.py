@@ -45,13 +45,18 @@ class EgressMonitor:
             except socket.gaierror:
                 continue
         def audit(event, args):
+            def _norm_host(val):
+                if isinstance(val, (bytes, bytearray)):
+                    return val.decode("utf-8", "ignore")
+                return str(val).strip()
+
             if event == 'socket.connect':
                 sock, destination = args
                 if sock.family not in (socket.AF_INET, socket.AF_INET6): return
-                host, port = str(destination[0]), destination[1]
-                permitted = host in self.ips
+                host, port = _norm_host(destination[0]), destination[1]
+                permitted = host in self.ips or host in self.hosts
             elif event == 'socket.getaddrinfo':
-                host, port = str(args[0]), args[1] or 0
+                host, port = _norm_host(args[0]), args[1] or 0
                 permitted = host in self.hosts or host in self.ips
             else: return
             self.total += 1

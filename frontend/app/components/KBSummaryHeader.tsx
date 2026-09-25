@@ -34,7 +34,7 @@ export default function KBSummaryHeader({
         <div className="space-y-1">
           <p className="text-[11px] font-mono uppercase text-text-3">Ingested Documents</p>
           <p className="text-2xl font-serif font-bold text-text">{totalDocs}</p>
-          <p className="text-[10px] text-green font-mono">100% Vector Indexed</p>
+          <p className="text-[10px] text-green font-mono">Ready document records</p>
         </div>
 
         <div className="space-y-1">

@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 
 
 # Known equipment ID patterns (P-xxx, T-xxx, V-xxx, R-xxx, E-xxx, C-xxx)
-EQUIPMENT_PATTERN = re.compile(r"\b([A-Z]-\d{2,4})\b")
+EQUIPMENT_PATTERN = re.compile(r"\b([A-Z]{1,6}-\d{1,6}[A-Z]?)\b")
 
 
 def tag_chunks(

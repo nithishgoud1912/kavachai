@@ -8,6 +8,8 @@ Endpoints:
 """
 
 from typing import Optional, Literal
+import asyncio
+from weakref import WeakValueDictionary
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -23,6 +25,14 @@ from app.access import owner_filter
 from app.db.sql_models import Session as SessionModel
 
 router = APIRouter(prefix="/api/v1/investigations", tags=["approval"])
+_locks = WeakValueDictionary()
+
+async def approval_lock(id: str):
+    # The deployment supports one backend worker; keep decisions serial per workflow.
+    lock = _locks.setdefault(id, asyncio.Lock())
+    async with lock:
+        yield
+
 
 
 class ReviewPayload(BaseModel):
@@ -37,6 +47,7 @@ async def start_approval(
     id: str,
     request: Request,
     session: SessionModel = Depends(get_current_session),
+    _lock=Depends(approval_lock),
 ):
     """
     Start the approval workflow for an investigation.
@@ -58,6 +69,8 @@ async def start_approval(
         inv = res.scalar_one_or_none()
         if not inv:
             raise HTTPException(404, "Investigation not found or unauthorized")
+        if not inv.report or inv.status != "complete":
+            raise HTTPException(409, "Completed report required")
 
     graph = request.app.state.approval_graph
     config = {"configurable": {"thread_id": f"approval_{id}"}}
@@ -91,6 +104,7 @@ async def resume_approval(
     request: Request,
     principal: Principal = Depends(require_permission("deliverable:approve")),
     session: SessionModel = Depends(get_current_session),
+    _lock=Depends(approval_lock),
 ):
     """
     Resume the approval workflow with the officer's decision.
@@ -120,12 +134,16 @@ async def resume_approval(
     if not state.next:
         raise HTTPException(400, "Workflow is not awaiting approval")
 
+    if body.draft_version != state.values.get("draft_version"):
+        raise HTTPException(409, "Stale draft version; reload before reviewing")
+
     # Resume the graph with the officer's decision
     result = await graph.ainvoke(
         Command(resume={
             "action": body.action,
             "edits": body.edits,
             "draft_version": body.draft_version,
+            "reviewer_user_id": principal.user_id,
         }),
         config=config,
     )

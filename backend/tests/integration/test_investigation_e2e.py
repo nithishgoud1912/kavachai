@@ -1,102 +1,39 @@
+"""Authenticated legacy investigation with real stores/PDF export and mocked inference.
+The fixture supplies all claimed facts; this is not live-model acceptance evidence.
 """
-KavachAI — Integration Tests: End-to-End Investigation Flow
-Implements: Phase 15 Acceptance Criteria #1, #3, #4
-            Workflow B (Investigation Query), Workflow C (Export)
-
-Verifies:
-1. P-102 query runs full multi-agent pipeline
-2. Generated report contains:
-   - Increasing vibration finding with +76%
-   - Exceeds threshold finding against 3.0 mm/s
-   - P&ID relationship ["T-101", "P-102", "V-204", "R-101"]
-   - Verified status and high confidence (>=90%)
-3. Every finding's evidence source resolves via evidence retrieval (Acceptance Criterion #3)
-4. Investigation report exports cleanly as PDF
-"""
-
+import json
+from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.database import init_db
-
+from app.orchestrator.model_router import model_router
 
 @pytest.mark.asyncio
-async def test_p102_investigation_full_e2e():
+async def test_inspection_investigation_full_e2e():
     await init_db()
-    transport = ASGITransport(app=app)
-
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Create session (FR-ACC-1)
-        sess_resp = await client.post("/api/v1/session", json={"name": "Vikram", "department": "Reliability"})
-        assert sess_resp.status_code == 200
-        session_id = sess_resp.json()["session_id"]
-
-        # 2. Start investigation (Workflow B)
-        auth_headers = {"Authorization": f"Bearer {session_id}"}
-        inv_resp = await client.post(
-            "/api/v1/investigations",
-            json={
-                "query": "Investigate Pump P-102 and determine whether its condition has deteriorated.",
-                "session_id": session_id,
-            },
-            headers=auth_headers,
-        )
-        assert inv_resp.status_code == 202
-        inv_data = inv_resp.json()
-        investigation_id = inv_data["investigation_id"]
-        assert inv_data["status"] == "planning"
-
-        # 3. Stream / wait for completion
-        # Fetch plan
-        plan_resp = await client.get(
-            f"/api/v1/investigations/{investigation_id}/plan",
-            headers=auth_headers,
-        )
-        assert plan_resp.status_code in [200, 202]
-
-        # In-memory background task runs; wait for report
-        import asyncio
-        for _ in range(60):
-            rep_resp = await client.get(
-                f"/api/v1/investigations/{investigation_id}/report",
-                headers=auth_headers,
-            )
-            if rep_resp.status_code == 200:
-                break
-            await asyncio.sleep(1.0)
-
-        assert rep_resp.status_code == 200, f"Report failed to generate: {rep_resp.text}"
-        report = rep_resp.json()
-
-        # 4. Verify report assertions (SRS §9 item 1)
-        assert report["overall_status"] == "attention_required"
-        assert len(report["findings"]) >= 2
-        assert report["pid_relationship"] in (
-            ["T-101", "P-102", "V-204", "R-101"],
-            ["T-101", "STR-101", "P-102", "F-101", "V-204", "R-101"],
-        )
-        assert report["confidence"] >= 90
-        assert report["verification_status"] == "verified"
-
-        # 5. Verify every finding's citation resolves via /api/v1/evidence/{source_id} (Acceptance #3)
-        for finding in report["findings"]:
-            for ev in finding["evidence"]:
-                source_id = ev["source_id"]
-                ev_resp = await client.get(
-                    f"/api/v1/evidence/{source_id}",
-                    headers={"Authorization": f"Bearer {session_id}"},
-                )
-                assert ev_resp.status_code == 200, f"Failed to resolve citation {source_id}"
-                ev_data = ev_resp.json()
-                assert ev_data["source_id"] == source_id
-
-        # 6. Test PDF export (Workflow C / FR-RPT-4)
-        export_resp = await client.post(
-            f"/api/v1/investigations/{investigation_id}/export",
-            json={"format": "pdf", "include_audit_trail": True},
-        )
-        assert export_resp.status_code == 200
-        export_data = export_resp.json()
-        assert "export_id" in export_data
-        assert export_data["download_url"].endswith(".pdf")
-
+    async with AsyncClient(transport=ASGITransport(app),base_url="http://test") as client:
+        session=(await client.post('/api/v1/session',json={'name':'Vikram','department':'Reliability'})).json()['session_id']
+        auth_headers={'Authorization':f'Bearer {session}'}
+        with patch.object(model_router,'embed',AsyncMock(side_effect=lambda texts:[[0.1]*768 for _ in texts])):
+            upload=await client.post('/api/v1/conversations/upload',headers=auth_headers,files={'file':('inspection.txt',b'The inspection found a loose cover on the test unit.','text/plain')})
+            assert upload.status_code==200,upload.text
+            source=upload.json()['source_id']
+            plan={'is_in_scope':True,'sub_tasks':[{'agent':'document_agent','goal':'Read the inspection'}]}
+            synthesis={'findings':[{'id':'f1','title':'Loose cover','detail':'The inspection found a loose cover.','evidence_refs':[source]}]}
+            verified={'findings':[{'id':'f1','verification_status':'supported'}],'overall_confidence':80}
+            with patch.object(model_router,'generate',AsyncMock(side_effect=[json.dumps(plan),json.dumps(synthesis),json.dumps(verified)])):
+                result=await client.post('/api/v1/investigations',headers=auth_headers,json={'query':'Summarize the inspection','session_id':session})
+            assert result.status_code==202,result.text
+            id=result.json()['investigation_id']
+            response=await client.get(f'/api/v1/investigations/{id}/report',headers=auth_headers)
+            assert response.status_code==200,response.text
+            report=response.json()
+            assert report['verification_status']=='verified'
+            assert report['findings'][0]['evidence'][0]['source_id']==source
+            assert not report.get('pid_relationship')
+            assert (await client.get(f'/api/v1/evidence/{source}',headers=auth_headers)).status_code==200
+            export=await client.post(f'/api/v1/investigations/{id}/export',headers=auth_headers,json={'format':'pdf','include_audit_trail':True})
+            assert export.status_code==200,export.text
+            artifact=await client.get(export.json()['download_url'],headers=auth_headers)
+            assert artifact.status_code==200 and artifact.content.startswith(b'%PDF')

@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, DragEvent } from "react";
 import type { AttachmentItem } from "@/app/types";
+import { uploadAttachment } from "@/app/services/api";
 
 interface AttachmentDropzoneProps {
   attachments: AttachmentItem[];
@@ -33,16 +34,25 @@ export default function AttachmentDropzone({
 }: AttachmentDropzoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const handleFiles = (files: FileList | null) => {
-    if (!files) return;
-    const newItems: AttachmentItem[] = Array.from(files).map((f) => ({
-      filename: f.name,
-      url: URL.createObjectURL(f),
-      type: f.type.startsWith("image/") ? "image" : "document",
-      size: f.size,
-    }));
-    onChange([...attachments, ...newItems]);
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const uploadedItems: AttachmentItem[] = [];
+      for (const file of Array.from(files)) {
+        const item = await uploadAttachment(file);
+        uploadedItems.push(item);
+      }
+      onChange([...attachments, ...uploadedItems]);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : "Failed to upload and index document");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleDragOver = (e: DragEvent) => {
@@ -58,7 +68,7 @@ export default function AttachmentDropzone({
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    handleFiles(e.dataTransfer.files);
+    void handleFiles(e.dataTransfer.files);
   };
 
   const removeAttachment = (index: number) => {
@@ -97,6 +107,21 @@ export default function AttachmentDropzone({
           <span className="text-[11px] underline opacity-80">(or browse)</span>
         </div>
       </div>
+
+      {/* Uploading Status Indicator */}
+      {uploading && (
+        <div className="flex items-center gap-2 p-2.5 text-xs font-mono text-accent bg-accent/10 border border-accent/20 rounded-xl">
+          <div className="w-3.5 h-3.5 border-2 border-accent border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>Extracting & indexing document into sovereign repository...</span>
+        </div>
+      )}
+
+      {/* Upload Error Banner */}
+      {uploadError && (
+        <div className="p-2.5 text-xs font-mono text-red bg-red/10 border border-red/20 rounded-xl">
+          {uploadError}
+        </div>
+      )}
 
       {/* Attached Files List */}
       {attachments.length > 0 && (

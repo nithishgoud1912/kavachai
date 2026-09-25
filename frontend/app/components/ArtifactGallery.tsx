@@ -32,7 +32,7 @@ export default function ArtifactGallery({
         <h3 className="text-xs font-mono font-semibold uppercase tracking-wider text-text-3">
           Generated Deliverable Artifacts ({artifacts.length})
         </h3>
-        <span className="text-[11px] font-mono text-text-3">100% On-Premise Storage</span>
+        <span className="text-[11px] font-mono text-text-3">Local artifact storage</span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

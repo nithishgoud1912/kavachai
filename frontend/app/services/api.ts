@@ -88,12 +88,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
-function getAuthHeaders(): HeadersInit {
-  if (typeof window === "undefined") return {};
-  const sessionId = sessionStorage.getItem("kavachai_session_id");
-  if (sessionId) {
-    return { Authorization: `Bearer ${sessionId}` };
-  }
+function getAuthHeaders(): Record<string, string> {
+  // The same-origin proxy attaches the HttpOnly session cookie.
   return {};
 }
 
@@ -453,6 +449,36 @@ export async function getInvestigations(): Promise<InvestigationSummary[]> {
 }
 
 // ─── Sovereign Workbench Tasks ──────────────────────────────────────
+
+export async function uploadAttachment(file: File): Promise<AttachmentItem> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers: Record<string, string> = {};
+
+  const res = await fetch(`${API_BASE}/conversations/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+    credentials: "include",
+  });
+  const data = await handleResponse<{
+    filename: string;
+    url: string;
+    type: string;
+    source_id: string;
+    size?: number;
+    extracted_text_preview?: string;
+  }>(res);
+
+  return {
+    filename: data.filename,
+    url: data.url,
+    type: data.type,
+    source_id: data.source_id,
+    size: data.size || file.size,
+    extracted_text: data.extracted_text_preview,
+  };
+}
 
 export async function createTask(
   query: string,

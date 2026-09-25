@@ -1,68 +1,32 @@
 "use client";
 
-import React, { useState } from "react";
+import { useEffect, useState } from "react";
 import MermaidDiagram from "./MermaidDiagram";
+import { getKnowledgeBaseGraph } from "@/app/services/api";
+import type { KnowledgeBaseGraph } from "@/app/types";
 
-interface EquipmentGraphPanelProps {
-  className?: string;
-}
-
-export default function EquipmentGraphPanel({ className = "" }: EquipmentGraphPanelProps) {
-  const [selectedTag, setSelectedTag] = useState<string>("P-204A");
-
-  const mermaidChart = `graph LR
-    classDef pump fill:#FEFEFE,stroke:#C35C3E,stroke-width:2px,color:#2D2A26;
-    classDef valve fill:#EDE7DE,stroke:#998C84,stroke-width:1px,color:#2D2A26;
-    classDef alert fill:#F2E6E3,stroke:#B83838,stroke-width:2px,color:#B83838;
-
-    TK201["Crude Storage TK-201"] --> MOV101["MOV-101 Suction Header"]
-    MOV101 --> P204A["P-204A (Crude Feed Pump - Vibration Alert)"]:::alert
-    MOV101 --> P204B["P-204B (Standby Pump)"]:::pump
-
-    P204A --> HV204A["Discharge Valve HV-204A"]:::valve
-    P204B --> HV204B["Discharge Valve HV-204B"]:::valve
-
-    HV204A --> CDU2["CDU-II Atmospheric Column"]
-    HV204B --> CDU2
-
-    P204A -.->|"Bypass Loop"| HV204B
-`;
-
-  return (
-    <div className={`p-5 bg-surface border border-border rounded-2xl shadow-xs space-y-4 ${className}`}>
-      <div className="flex items-center justify-between pb-2 border-b border-border-subtle">
-        <div>
-          <h3 className="font-serif font-bold text-base text-text">
-            P&ID Process Topology & Equipment Graph
-          </h3>
-          <p className="text-xs text-text-3 font-mono">
-            Extracted from CDU-II Engineering Drawing MRPL-CDU2-PID-004
-          </p>
-        </div>
-        <span className="text-xs font-mono px-2 py-0.5 rounded bg-surface-2 border border-border text-text-2">
-          Mermaid SVG Topology
-        </span>
-      </div>
-
-      <div className="bg-bg-base/70 rounded-xl p-4 border border-border overflow-x-auto flex justify-center">
-        <MermaidDiagram code={mermaidChart} />
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-1">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded bg-red" />
-            <span className="text-text-2 font-mono">P-204A: Anomaly (BPFO 142.4Hz)</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded bg-accent" />
-            <span className="text-text-2 font-mono">P-204B: Standby Ready</span>
-          </span>
-        </div>
-        <span className="text-text-3 font-mono text-[11px]">
-          Click elements in diagram or view source P&ID drawing
-        </span>
-      </div>
-    </div>
-  );
+export default function EquipmentGraphPanel({ className = "" }: { className?: string }) {
+  const [graph, setGraph] = useState<KnowledgeBaseGraph | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    getKnowledgeBaseGraph().then(value => { if (active) { setGraph(value); setError(null); } })
+      .catch(reason => { if (active) { setGraph(null); setError(reason instanceof Error ? reason.message : "Graph unavailable"); } });
+    return () => { active = false; };
+  }, []);
+  const chart = graph?.nodes.length ? ["graph LR", ...graph.nodes.map((node, i) => `N${i}["${node.label || node.id}"]`),
+    ...graph.edges.map(edge => {
+      const from = graph.nodes.findIndex(n => n.id === edge.source);
+      const to = graph.nodes.findIndex(n => n.id === edge.target);
+      return from >= 0 && to >= 0 ? `N${from} -->|"${edge.relationship || "connected"}"| N${to}` : "";
+    }).filter(Boolean)].join("\n") : "";
+  return <section className={`p-5 bg-surface border border-border rounded-2xl shadow-xs space-y-4 ${className}`}>
+    <div><h3 className="font-serif font-bold text-base text-text">Equipment relationships</h3>
+      <p className="text-xs text-text-3">Owner and department scoped metadata. Relationships require source verification.</p></div>
+    {error && <p role="alert" className="text-sm text-red">{error}</p>}
+    {graph?.nodes.length ? <>
+      <div className="bg-bg-base/70 rounded-xl p-4 border border-border overflow-x-auto flex justify-center"><MermaidDiagram code={chart} /></div>
+      <p className="text-xs text-text-3">{graph.nodes.length} nodes · {graph.edges.length} relationships</p>
+    </> : !error && <p className="text-sm text-text-3">No equipment relationships have been added to this workspace.</p>}
+  </section>;
 }

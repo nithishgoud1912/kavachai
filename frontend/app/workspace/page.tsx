@@ -205,7 +205,7 @@ export default function WorkspacePage() {
               <div className="flex items-center justify-between border-b border-border-subtle pb-2">
                 <span className="text-xs font-serif font-bold text-text">Recent Audit Trail</span>
                 <Link href="/audit" className="text-[10px] font-mono text-accent hover:underline">
-                  Full WORM →
+                  Full Local Audit →
                 </Link>
               </div>
 

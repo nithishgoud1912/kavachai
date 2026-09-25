@@ -43,8 +43,8 @@ async def models(type: str | None=None, session=Depends(get_current_session), db
     if type=='rules':
         return [dict(id=k,task_type=k,preferred_model_id=v,enabled=True,condition_description='Backend task capability') for k,v in model_router._model_map.items()]
     try:
-        tags=(await model_router._client.get('/api/tags')).json().get('models',[])
-        running=(await model_router._client.get('/api/ps')).json().get('models',[])
+        tags=(await model_router.client.get('/api/tags')).json().get('models',[])
+        running=(await model_router.client.get('/api/ps')).json().get('models',[])
     except Exception as exc: raise HTTPException(503, 'Local model service unavailable') from exc
     loaded={m['name']:m for m in running}
     return [dict(id=m['name'],name=m['name'],display_name=m['name'],provider='ollama',size=str(m.get('size',0)),
@@ -62,7 +62,7 @@ async def update_model(body: ModelUpdate, principal=Depends(require_permission('
     model=rule.get('preferred_model_id')
     if task not in model_router._model_map or not isinstance(model,str) or not model.strip(): raise HTTPException(422,'Choose an existing backend task capability and installed model')
     if task=='embedding': raise HTTPException(409,'Embedding changes require an offline reindex into a new collection; configure EMBEDDING_MODEL and restart')
-    tags=(await model_router._client.get('/api/tags')).json().get('models',[])
+    tags=(await model_router.client.get('/api/tags')).json().get('models',[])
     if model not in [m['name'] for m in tags]: raise HTTPException(422,'Model must be provisioned locally first')
     mapping={**model_router._model_map,task:model}
     row=await db.get(SystemSetting,'routing')

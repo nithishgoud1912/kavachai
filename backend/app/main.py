@@ -61,6 +61,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
 # CORS — only allow the frontend origin (NFR-SEC-2: local-only comms)
 app.add_middleware(
     CORSMiddleware,
@@ -81,7 +82,7 @@ async def health_check():
 @app.get("/api/v1/health", tags=["system"])
 async def api_health_check():
     """API-versioned health check."""
-    return {"status": "ok", "service": "kavachai-backend", "version": "0.1.0"}
+    return {"status": "ok", "service": "kavachai-backend", "version": "0.1.0", "workbench_workflow": "multimodal-v2"}
 
 
 # --- Route Registration ---

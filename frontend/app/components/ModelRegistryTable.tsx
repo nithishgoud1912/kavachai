@@ -19,13 +19,13 @@ export default function ModelRegistryTable({
     <div className={`bg-surface border border-border rounded-2xl overflow-hidden shadow-xs space-y-3 p-5 ${className}`}>
       <div className="flex items-center justify-between pb-2 border-b border-border-subtle">
         <div>
-          <h3 className="font-serif font-bold text-base text-text">On-Premise Model Registry</h3>
+          <h3 className="font-serif font-bold text-base text-text">Local Model Service</h3>
           <p className="text-xs text-text-3 font-mono">
-            {models.length} Local Open-Weight Models Registered & Hosted On-Site
+            {models.length} models reported by the local model service
           </p>
         </div>
         <span className="px-2.5 py-1 rounded-full bg-green/10 text-green border border-green/20 text-xs font-mono font-medium">
-          Zero Cloud Calls
+          Local service status only
         </span>
       </div>
 
@@ -75,10 +75,10 @@ export default function ModelRegistryTable({
                     <div className="w-16 h-1.5 rounded-full bg-surface-2 overflow-hidden">
                       <div
                         className="h-full bg-accent rounded-full"
-                        style={{ width: `${(m.vram_usage_gb / m.max_vram_gb) * 100}%` }}
+                        style={{ width: `${m.max_vram_gb > 0 ? Math.min((m.vram_usage_gb / m.max_vram_gb) * 100,100) : 0}%` }}
                       />
                     </div>
-                    <span>{m.vram_usage_gb.toFixed(1)} GB</span>
+                    <span>{m.vram_usage_gb > 0 ? `${m.vram_usage_gb.toFixed(1)} GB` : "Not reported"}</span>
                   </div>
                 </td>
                 <td className="py-3">

@@ -8,10 +8,17 @@ Verifies:
 """
 
 import pytest
+from unittest.mock import patch, AsyncMock
+from app.orchestrator.model_router import model_router
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.database import init_db
 
+
+@pytest.fixture(autouse=True)
+def refusal_model():
+    with patch.object(model_router, 'generate', AsyncMock(return_value='{"is_in_scope": false, "sub_tasks": []}')):
+        yield
 
 @pytest.mark.asyncio
 async def test_workflow_e_out_of_scope_refusal():
@@ -23,6 +30,8 @@ async def test_workflow_e_out_of_scope_refusal():
         sess_resp = await client.post("/api/v1/session", json={"name": "Rajesh", "department": "Finance"})
         assert sess_resp.status_code == 200
         session_id = sess_resp.json()["session_id"]
+
+        client.headers["Authorization"] = f"Bearer {session_id}"
 
         # Start out-of-scope investigation
         inv_resp = await client.post("/api/v1/investigations", json={
@@ -36,7 +45,7 @@ async def test_workflow_e_out_of_scope_refusal():
         import asyncio
         for _ in range(10):
             rep_resp = await client.get(f"/api/v1/investigations/{investigation_id}/report")
-            if rep_resp.status_code in [404, 400]:
+            if rep_resp.status_code == 200 and rep_resp.json().get("overall_status") == "insufficient_evidence":
                 # Insufficient evidence investigations do not have a report URL
                 break
             await asyncio.sleep(0.3)

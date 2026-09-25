@@ -8,7 +8,7 @@ export async function proxyToBackend(req: Request): Promise<Response> {
     return Response.json({ detail: "Cross-origin request denied" }, { status: 403 });
   }
   const headers = new Headers();
-  for (const key of ["authorization", "x-session-id", "content-type", "last-event-id"]) {
+  for (const key of ["content-type", "last-event-id"]) {
     const value = req.headers.get(key);
     if (value) headers.set(key, value);
   }
@@ -22,7 +22,7 @@ export async function proxyToBackend(req: Request): Promise<Response> {
   const timer = setTimeout(() => controller.abort(), 180000);
   req.signal.addEventListener("abort", () => controller.abort(), { once: true });
   try {
-    let body: Uint8Array | undefined;
+    let body: Uint8Array<ArrayBuffer> | undefined;
     if (!["GET", "HEAD"].includes(req.method) && req.body) {
       const reader = req.body.getReader();
       const chunks: Uint8Array[] = [];

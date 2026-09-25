@@ -113,7 +113,7 @@ Classify each finding and assign overall confidence. Respond with JSON only."""
             task_type="text_reasoning",
             system=VERIFICATION_SYSTEM_PROMPT,
             temperature=0.1,
-            max_tokens=512,
+            max_tokens=2048,
             format="json",
         )
 

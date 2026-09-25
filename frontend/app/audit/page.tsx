@@ -114,7 +114,7 @@ export default function AuditLogPage() {
         {/* Table */}
         <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-xs p-5 space-y-3">
           {loading ? (
-            <div className="p-8 text-center text-xs text-text-3">Loading WORM ledger...</div>
+            <div className="p-8 text-center text-xs text-text-3">Loading Local Audit ledger...</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs font-sans border-collapse">
@@ -180,7 +180,7 @@ export default function AuditLogPage() {
           )}
         </div>
 
-        {/* Read-Only WORM Detail Drawer */}
+        {/* Read-Only Local Audit Detail Drawer */}
         {selectedEntry && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-end z-50 p-4">
             <div className="bg-surface border border-border rounded-2xl p-6 max-w-lg w-full h-[90vh] shadow-xl flex flex-col justify-between space-y-4 overflow-y-auto">
@@ -188,7 +188,7 @@ export default function AuditLogPage() {
                 <div className="flex items-center justify-between border-b border-border pb-3">
                   <div>
                     <h3 className="font-serif font-bold text-base text-text">
-                      WORM Audit Record Details
+                      Local Audit Audit Record Details
                     </h3>
                     <span className="font-mono text-xs text-accent">
                       {selectedEntry.investigation_id}

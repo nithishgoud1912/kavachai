@@ -66,7 +66,7 @@ export default function TasksHistoryPage() {
         <div className="bg-surface border border-border rounded-2xl overflow-hidden shadow-xs p-5 space-y-4">
           <div className="flex items-center justify-between pb-2 border-b border-border-subtle">
             <h3 className="font-serif font-bold text-base text-text">Executed Tasks ({filtered.length})</h3>
-            <span className="text-xs font-mono text-text-3">Stored On-Premise WORM Database</span>
+            <span className="text-xs font-mono text-text-3">Stored On-Premise Local Audit Database</span>
           </div>
 
           {loading ? (

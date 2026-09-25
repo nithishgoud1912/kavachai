@@ -226,37 +226,16 @@ async def get_summary(
     Get corpus overview for the workspace footer.
     Implements: API_Reference.md §3 GET /knowledge-base/summary
     """
-    # Count documents (excluding PID drawings)
-    doc_result = await db.execute(
-        select(func.count(Document.id)).where(
-            Document.status == "ready",
-            owner_filter(Document, current_session, shared=True),
-            Document.document_type != "pid_drawing",
-        )
-    )
-    doc_count = doc_result.scalar() or 0
-
-    # Count PID drawings
-    pid_result = await db.execute(
-        select(func.count(Document.id)).where(
-            Document.status == "ready",
-            owner_filter(Document, current_session, shared=True),
-            Document.document_type == "pid_drawing",
-        )
-    )
-    pid_count = pid_result.scalar() or 0
-
-    # Count datasets
-    ds_result = await db.execute(
-        select(func.count(Dataset.id)).where(Dataset.status == "ready", owner_filter(Dataset, current_session, shared=True))
-    )
-    ds_count = ds_result.scalar() or 0
-
-    return KnowledgeBaseSummary(
-        documents=doc_count,
-        datasets=ds_count,
-        pid_drawings=pid_count,
-    )
+    counts = {"documents": 0, "datasets": 0, "pid_drawings": 0}
+    for model in (Document, Dataset):
+        records = (await db.execute(select(model).where(model.status == "ready",
+            owner_filter(model, current_session, shared=True)))).scalars()
+        for record in records:
+            try: await assert_owner(record, current_session, db, shared=True)
+            except HTTPException: continue
+            key = "datasets" if model is Dataset else ("pid_drawings" if record.document_type == "pid_drawing" else "documents")
+            counts[key] += 1
+    return KnowledgeBaseSummary(**counts)
 
 
 # Equipment metadata is persisted per owner and department; it is not visual evidence.
@@ -290,10 +269,10 @@ async def add_graph_edge(body: GraphEdgeCreate, current_session=Depends(get_curr
     if body.from_id not in ids or body.to_id not in ids:
         await db.rollback()
         raise HTTPException(422, "Create both equipment nodes before their relationship")
-    edge = {"from": body.from_id, "to": body.to_id, "relationship": body.relationship,
+    edge = {"source": body.from_id, "target": body.to_id, "relationship": body.relationship,
             "label": body.label or body.relationship}
     record.value = {**record.value, "edges": [e for e in record.value['edges']
-        if (e['from'], e['to']) != (body.from_id, body.to_id)] + [edge]}
+        if (e['source'], e['target']) != (body.from_id, body.to_id)] + [edge]}
     await db.commit()
     return {"status": "created", "edge": edge}
 

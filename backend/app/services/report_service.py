@@ -156,28 +156,15 @@ async def render_briefing_draft(investigation_id: str) -> str:
         )
         inv = result.scalar_one_or_none()
 
-    if not inv:
-        return f"Investigation {investigation_id} — Draft Briefing Note\n\nInvestigation data not found."
-
-    # Build the draft from available investigation data
-    sections = []
-    sections.append(f"BRIEFING NOTE — Investigation {investigation_id}")
-    sections.append(f"Query: {inv.query}")
-    sections.append(f"Status: {inv.status}")
-
-    if inv.draft_findings:
-        findings = inv.draft_findings
-        if isinstance(findings, dict):
-            sections.append(f"\nCondition Summary: {findings.get('condition_summary', 'N/A')}")
-            for f in findings.get("findings", []):
-                sections.append(f"  - {f.get('title', 'Finding')}: {f.get('detail', '')}")
-
-    if inv.report:
-        report_data = inv.report
-        if isinstance(report_data, dict):
-            sections.append(f"\nVerification Status: {report_data.get('overall_status', 'pending')}")
-            sections.append(f"Confidence: {report_data.get('overall_confidence', 'N/A')}%")
-
-    sections.append("\n--- Pending Officer Review ---")
-    return "\n".join(sections)
-
+    if not inv or inv.status != 'complete' or not inv.report:
+        raise ValueError('Completed report required for approval')
+    report = inv.report
+    sections = [f"BRIEFING NOTE — Investigation {investigation_id}", f"Query: {inv.query}",
+                f"Verification: {report.get('verification_status', 'unverified')}"]
+    for finding in report.get('findings', []):
+        sections.append(f"{finding.get('title', 'Finding')}: {finding.get('detail', '')}")
+        sections.append(f"Support: {finding.get('verification_status', 'unverified')}")
+        for evidence in finding.get('evidence', []):
+            sections.append(f"Source: {evidence.get('source_id')} page {evidence.get('page')}")
+    sections.extend([report.get('conclusion', ''), 'Pending officer review'])
+    return '\n'.join(sections)

@@ -14,84 +14,57 @@ export interface SessionState {
 import { getCurrentSession, revokeSession } from "@/app/services/api";
 
 const STORAGE_KEY = "kavachai_session";
-const SESSION_ID_KEY = "kavachai_session_id";
+
 
 export function useSession(): SessionState {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     async function initSession() {
       try {
-        const stored = sessionStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          setSession(parsed);
-
-          // Verify with server in background
-          try {
-            const verified = await getCurrentSession();
-            setSession(verified);
-            sessionStorage.setItem(STORAGE_KEY, JSON.stringify(verified));
-          } catch {
-            // Session expired or revoked on server
-            sessionStorage.removeItem(STORAGE_KEY);
-            sessionStorage.removeItem(SESSION_ID_KEY);
-            setSession(null);
-          }
-        } else {
-          const verified = await getCurrentSession();
-          setSession(verified);
-          sessionStorage.setItem(STORAGE_KEY, JSON.stringify(verified));
-        }
+        const verified = await getCurrentSession();
+        if (!active) return;
+        setSession(verified);
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({name:verified.name,department:verified.department,issued_at:verified.issued_at,expires_at:verified.expires_at,roles:verified.roles}));
       } catch {
-        // Session cookie missing or expired
-      } finally {
-        setIsLoading(false);
-      }
+        if (!active) return;
+        sessionStorage.removeItem(STORAGE_KEY);
+        setSession(null);
+      } finally { if (active) setIsLoading(false); }
     }
-
-    initSession();
+    void initSession();
+    return () => { active = false; };
   }, []);
 
   const login = useCallback((newSession: Session) => {
     setSession(newSession);
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(newSession));
-      sessionStorage.setItem(SESSION_ID_KEY, newSession.session_id);
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({name:newSession.name,department:newSession.department,issued_at:newSession.issued_at,expires_at:newSession.expires_at,roles:newSession.roles}));
+
     } catch {
       // Ignore storage write errors
     }
   }, []);
 
   const logout = useCallback(() => {
-    const currentId = session?.session_id || (typeof window !== "undefined" ? sessionStorage.getItem(SESSION_ID_KEY) : null);
-    if (currentId) {
-      revokeSession(currentId).catch(() => {});
-    }
+    revokeSession().catch(() => {});
 
     setSession(null);
     try {
       sessionStorage.removeItem(STORAGE_KEY);
-      sessionStorage.removeItem(SESSION_ID_KEY);
     } catch {
       // Ignore storage remove errors
     }
-  }, [session]);
+  }, []);
 
-  // Sync across tabs
+  // Recheck cross-tab session changes with the HttpOnly cookie.
   useEffect(() => {
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) {
-        if (e.newValue) {
-          try {
-            setSession(JSON.parse(e.newValue));
-          } catch {
-            setSession(null);
-          }
-        } else {
-          setSession(null);
-        }
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY && event.newValue === null) setSession(null);
+      if (event.key === STORAGE_KEY && event.newValue !== null) {
+        getCurrentSession().then(setSession).catch(() => setSession(null));
       }
     };
     window.addEventListener("storage", handleStorage);

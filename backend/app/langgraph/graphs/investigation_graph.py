@@ -90,16 +90,9 @@ async def create_plan_node(state: InvestigationState) -> dict:
     if state.get("attachment_ids"):
         dispatched.append("run_ocr")
 
-    # Check if operational dataset exists for analysis
-    try:
-        async with async_session() as db:
-            res = await db.execute(
-                select(Dataset).where(Dataset.status == "ready").limit(1)
-            )
-            if res.scalar_one_or_none():
-                dispatched.append("analyze_data")
-    except Exception as e:
-        logger.warning("Dataset check failed: %s", e)
+    # Telemetry requires an explicit source, equipment and metric.
+    if state.get("dataset_id") and state.get("equipment_id") and state.get("metric"):
+        dispatched.append("analyze_data")
 
     return {
         "dispatched_agents": dispatched,
@@ -152,12 +145,12 @@ async def run_ocr_node(state: InvestigationState) -> dict:
                         file_data[0],
                         file_data[1],
                     )
-                    ocr_results.extend([p["text"] for p in pages if p.get("text")])
+                    ocr_results.extend([{ "chunk_text": p["text"], "source_id": attachment_id, "page": p["page"], "score": 1.0 } for p in pages if p.get("text")])
             except Exception as e:
                 logger.warning("OCR failed for attachment %s: %s", attachment_id, e)
 
         return {
-            "evidence_bundle": {"ocr": ocr_results if ocr_results else ["No OCR content extracted"]},
+            "evidence_bundle": {"ocr": ocr_results},
             "event_log": [{"agent": "ocr_agent", "status": "completed", "pages": len(ocr_results)}],
         }
     except Exception as e:
@@ -171,22 +164,16 @@ async def run_ocr_node(state: InvestigationState) -> dict:
 async def analyze_data_node(state: InvestigationState) -> dict:
     """Analyze operational data from available datasets."""
     try:
+        from app.access import assert_owner
+        from app.db.sql_models import Session
+        if not all(state.get(key) for key in ('dataset_id', 'equipment_id', 'metric')):
+            raise ValueError('Explicit dataset, equipment and metric are required')
         async with async_session() as db:
-            res = await db.execute(
-                select(Dataset).where(Dataset.status == "ready").limit(1)
-            )
-            dataset = res.scalar_one_or_none()
-
-        if not dataset:
-            return {
-                "event_log": [{"agent": "data_agent", "status": "skipped", "reason": "no dataset"}],
-            }
-
-        analysis = data_agent.analyze(
-            metric="vibration",
-            equipment_id="P-102",
-            dataset_id=dataset.id,
-        )
+            session = await db.get(Session, state.get('session_id'))
+            if session is None: raise ValueError('Authenticated owner required')
+            dataset = await db.get(Dataset, state['dataset_id'])
+            await assert_owner(dataset, session, db, shared=True)
+        analysis = data_agent.analyze(metric=state['metric'], equipment_id=state['equipment_id'], dataset_id=dataset.id)
         return {
             "evidence_bundle": {"telemetry": analysis.model_dump() if analysis else None},
             "event_log": [{"agent": "data_agent", "status": "completed"}],
@@ -235,20 +222,22 @@ async def revise_plan_node(state: InvestigationState) -> dict:
     }
 
 
+def _evidence_from_state(state):
+    from app.agents.base import DocumentChunk, EvidenceItem, DataAnalysisResult
+    eb = state.get('evidence_bundle') or {}
+    documents = [DocumentChunk(**d) for d in [*eb.get('documents', []), *eb.get('ocr', [])] if isinstance(d, dict)]
+    evidence = [EvidenceItem(type='document', source_id=d.source_id, label=d.source_id, page=d.page) for d in documents]
+    telemetry = DataAnalysisResult(**eb['telemetry']) if eb.get('telemetry') else None
+    if telemetry and state.get('dataset_id'):
+        evidence.append(EvidenceItem(type='dataset', source_id=state['dataset_id'], label=state['dataset_id']))
+    return EvidenceBundle(document_findings=documents, data_findings=telemetry, evidence_items=evidence)
+
+
 async def synthesize_node(state: InvestigationState) -> dict:
     """Synthesize evidence into draft findings."""
     try:
-        eb = state.get("evidence_bundle") or {}
-
-        # Build EvidenceBundle from the gathered evidence
-        from app.agents.base import DocumentChunk
-        doc_findings = []
-        for doc in eb.get("documents", []):
-            if isinstance(doc, dict):
-                doc_findings.append(DocumentChunk(**doc))
-
-        bundle = EvidenceBundle(document_findings=doc_findings)
-        draft = await synthesis_synthesize(bundle)
+        bundle = _evidence_from_state(state)
+        draft = await synthesis_synthesize(bundle, state.get("query", ""))
 
         return {
             "draft_findings": draft.model_dump(),
@@ -271,14 +260,7 @@ async def verify_node(state: InvestigationState) -> dict:
         draft_data = state.get("draft_findings", {})
         draft = DraftFindings(**draft_data)
 
-        eb = state.get("evidence_bundle") or {}
-        from app.agents.base import DocumentChunk
-        doc_findings = []
-        for doc in eb.get("documents", []):
-            if isinstance(doc, dict):
-                doc_findings.append(DocumentChunk(**doc))
-
-        bundle = EvidenceBundle(document_findings=doc_findings)
+        bundle = _evidence_from_state(state)
         vr = await verification_verify(draft, bundle)
 
         # Determine if verification passed

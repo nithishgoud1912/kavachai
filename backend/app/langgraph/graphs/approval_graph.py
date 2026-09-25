@@ -35,6 +35,8 @@ class ApprovalState(TypedDict):
     approval_status: Optional[ApprovalAction]
     officer_edits: Optional[str]
     final_docx_url: Optional[str]
+    reviewer_user_id: Optional[str]
+    artifact_sha256: Optional[str]
 
 
 # ---------------------------------------------------------------------------
@@ -43,15 +45,8 @@ class ApprovalState(TypedDict):
 
 async def draft_note_node(state: ApprovalState) -> dict:
     """Generate or re-generate the draft briefing note."""
-    try:
-        from app.services.report_service import render_briefing_draft
-        draft = await render_briefing_draft(state["investigation_id"])
-    except Exception as e:
-        logger.warning("Briefing draft render failed, using fallback: %s", e)
-        draft = (
-            f"Investigation {state['investigation_id']} — Draft Briefing Note\n\n"
-            "Findings and recommendations pending officer review."
-        )
+    from app.services.report_service import render_briefing_draft
+    draft = await render_briefing_draft(state["investigation_id"])
     return {
         "draft_note_text": draft,
         "draft_version": state.get("draft_version", 0) + 1,
@@ -86,6 +81,7 @@ async def human_review_node(state: ApprovalState) -> dict:
     return {
         "approval_status": status,
         "officer_edits": review_data.get("edits"),
+        "reviewer_user_id": review_data.get("reviewer_user_id"),
     }
 
 
@@ -113,14 +109,29 @@ async def handle_conflict_node(state: ApprovalState) -> dict:
 async def generate_final_node(state: ApprovalState) -> dict:
     """Generate the final approved DOCX document."""
     try:
+        import hashlib, json, shutil, uuid
+        from pathlib import Path
         from app.services.document_export import generate_briefing_docx
-
-        content = state.get("officer_edits") or state["draft_note_text"]
-        url = await generate_briefing_docx(
-            state["investigation_id"],
-            content,
-        )
-        return {"final_docx_url": f"/api/v1/exports/{state['investigation_id']}/docx"}
+        from app.db.database import async_session
+        from app.db.sql_models import Investigation, SystemSetting
+        async with async_session() as db:
+            inv = await db.get(Investigation, state['investigation_id'])
+            if not inv or not inv.report or inv.status != 'complete':
+                raise ValueError('Completed source report required')
+            content = state.get('officer_edits') or state['draft_note_text']
+            path = Path(await generate_briefing_docx(state['investigation_id'], content,
+                report={**inv.report, 'approval_status':'approved'}))
+            approved = path.with_name(f"approved_v{state['draft_version']}_{uuid.uuid4().hex}.docx")
+            shutil.copyfile(path, approved)
+            digest = hashlib.sha256(approved.read_bytes()).hexdigest()
+            record = await db.get(SystemSetting, 'approved_export:' + inv.id)
+            value = {'path':str(approved), 'sha256':digest, 'version':state['draft_version'],
+                     'reviewer_user_id':state.get('reviewer_user_id'),
+                     'report_sha256':hashlib.sha256(json.dumps(inv.report,sort_keys=True).encode()).hexdigest()}
+            if record: record.value = value
+            else: db.add(SystemSetting(key='approved_export:' + inv.id, value=value))
+            await db.commit()
+        return {"final_docx_url": f"/api/v1/exports/{state['investigation_id']}/docx", 'artifact_sha256':digest}
     except Exception as e:
         logger.error("Final DOCX generation failed: %s", e)
         raise RuntimeError("Approved artifact generation failed") from e
@@ -133,9 +144,9 @@ async def audit_log_node(state: ApprovalState) -> dict:
     async with async_session() as db:
         session = await db.get(Session, state['session_id'])
         await append_security_event(db, event_type="APPROVAL_DECISION", outcome=str(state.get('approval_status')),
-                                    actor_user_id=session.user_id if session else None,
+                                    actor_user_id=state.get('reviewer_user_id'),
                                     resource_type="investigation", resource_id=state['investigation_id'],
-                                    detail={"version":state['draft_version'], "artifact":state.get('final_docx_url')})
+                                    detail={"version":state['draft_version'], "artifact":state.get('final_docx_url'), "sha256":state.get('artifact_sha256')})
     return {}
 
 

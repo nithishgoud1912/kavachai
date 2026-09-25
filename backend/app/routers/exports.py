@@ -145,6 +145,16 @@ async def export_investigation(
     # Authenticate & authorise
     inv = await _get_investigation(investigation_id, session, db)
 
+    if format == 'docx':
+        import hashlib
+        from app.db.sql_models import SystemSetting
+        approved = await db.get(SystemSetting, 'approved_export:' + investigation_id)
+        if approved:
+            path = Path(approved.value['path'])
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != approved.value['sha256']:
+                raise HTTPException(409, 'Approved artifact integrity check failed')
+            return FileResponse(path, filename=path.name, media_type=MIME_TYPES['docx'], headers={'Cache-Control':'private, no-store'})
+
     # Check if file is already cached
     cached_path = _export_path(investigation_id, format)
 

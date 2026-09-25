@@ -25,6 +25,9 @@ class InvestigationState(TypedDict):
     investigation_id: str
     session_id: str
     query: str
+    dataset_id: Optional[str]
+    equipment_id: Optional[str]
+    metric: Optional[str]
     attachment_ids: List[str]
     task_type: str
     selected_models: Dict[str, str]

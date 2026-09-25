@@ -3,9 +3,12 @@ Test live query dispatch to Qwen model via model router.
 """
 import pytest
 import asyncio
+import os
+import pytest
 from app.orchestrator.model_router import model_router
 
 
+@pytest.mark.skipif(os.environ.get("RUN_LIVE_INFERENCE") != "1", reason="Set RUN_LIVE_INFERENCE=1 for an operator initiated live Ollama check")
 @pytest.mark.asyncio
 async def test_qwen_live_inference():
     """Verify that model_router can communicate with local Ollama if online."""

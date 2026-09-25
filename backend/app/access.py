@@ -55,11 +55,16 @@ async def validate_attachments(attachments, session, db):
     for attachment in attachments:
         item = attachment.model_dump() if hasattr(attachment, "model_dump") else dict(attachment)
         source = item.get("source_id")
+        fname = item.get("filename", "unnamed file")
+        if not source:
+            raise HTTPException(400, f"Attachment '{fname}' has not been uploaded to the local repository yet or is missing a valid source_id.")
         doc = (await db.execute(select(Document).where(Document.source_id == source))).scalar_one_or_none()
+        if not doc:
+            raise HTTPException(404, f"Attachment '{fname}' (source_id: {source}) was not found in the authorized document repository.")
         await assert_owner(doc, session, db, shared=True)
         raw = object_store.get_raw_file(source)
         if not raw:
-            raise HTTPException(404, "Attachment file unavailable")
+            raise HTTPException(404, f"Attachment file data for '{fname}' is unavailable")
         pages = await extract_text_with_ocr(*raw)
         item.update(filename=doc.filename, url=f"/api/v1/files/{source}/raw",
                     extracted_text="\n\n".join(p['text'] for p in pages)[:100000])

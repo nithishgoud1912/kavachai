@@ -15,9 +15,11 @@ from app.main import app
 from app.db.database import init_db, async_session
 from app.db.sql_models import Session, Conversation, Investigation, Document, User, WorkbenchJob
 from app.orchestrator.model_router import model_router
-from app.agents.base import EvidenceBundle, EvidenceItem, DraftFinding, DraftFindings
-from app.agents.synthesis import _resolve_evidence_refs
+from app.agents.base import EvidenceBundle, EvidenceItem, DocumentChunk, DraftFinding, DraftFindings
+from app.agents.synthesis import _resolve_evidence_refs, _format_evidence_bundle
+from app.agents.base import VerificationResult, VerifiedFinding, VerificationStatus
 from app.agents.verification import _build_result, _fallback_verification
+from app.routers.workbench import _has_cited_partial_support
 from app.services.document_export import generate_all_exports
 from app.security import generate_totp_secret, generate_totp
 
@@ -81,10 +83,31 @@ async def test_model_outage_never_returns_generated_evidence_or_vectors():
 def test_citations_match_identity_and_missing_refs_are_not_supported():
     bundle=EvidenceBundle(evidence_items=[EvidenceItem(type='document',source_id='A',label='A'),EvidenceItem(type='document',source_id='B',label='B')])
     assert [e.source_id for e in _resolve_evidence_refs(['B'],bundle)]==['B']
+    assert [e.source_id for e in _resolve_evidence_refs(['E2'],bundle)]==['B']
     assert _resolve_evidence_refs(['unknown'],bundle)==[]
     draft=DraftFindings(findings=[DraftFinding(id='f1',title='Claim',detail='Claim',evidence=[])],condition_summary='')
     assert _build_result(draft,{'findings':[{'id':'f1','verification_status':'supported'}]}).overall_status=='unverified'
     assert _fallback_verification(draft).overall_status=='unverified'
+
+def test_synthesis_formats_short_citation_ids_for_document_chunks():
+    bundle=EvidenceBundle(
+        document_findings=[DocumentChunk(chunk_text='Recorded observation',source_id='opaque-source-id',page=2,score=0.9)],
+        evidence_items=[EvidenceItem(type='document',source_id='opaque-source-id',label='inspection.pdf',page=2)],
+    )
+    assert '[E1] Source opaque-source-id (p.2)' in _format_evidence_bundle(bundle)
+
+def test_partially_supported_findings_need_citations_to_continue_to_review():
+    citation=EvidenceItem(type='document',source_id='source-1',label='inspection.pdf')
+    partial=VerificationResult(findings=[VerifiedFinding(
+        id='f1',title='Observation',detail='Uncertain observation',
+        verification_status=VerificationStatus.PARTIALLY_SUPPORTED,evidence=[citation],
+    )],overall_confidence=20,overall_status='unverified')
+    unsupported=VerificationResult(findings=[VerifiedFinding(
+        id='f1',title='Claim',detail='Unsupported claim',
+        verification_status=VerificationStatus.UNSUPPORTED,evidence=[],
+    )],overall_confidence=0,overall_status='unverified')
+    assert _has_cited_partial_support(partial)
+    assert not _has_cited_partial_support(unsupported)
 
 @pytest.mark.asyncio
 async def test_office_artifacts_are_valid_and_do_not_invent_telemetry():
@@ -196,3 +219,44 @@ async def test_code_task_records_failed_attempt_and_successful_repair(setup):
                 assert [c['status'] for c in task['tool_calls']]==['failed','completed']
                 artifact=await client.get(task['artifacts'][0]['download_url'],headers=headers)
                 assert 'value=2' in artifact.text and 'assert value==2' in artifact.text
+
+@pytest.mark.asyncio
+async def test_vision_task_reads_real_uploaded_image_and_records_both_models(setup):
+    from PIL import Image
+    owner,*_=setup
+    image=io.BytesIO(); Image.new('RGB',(80,40),'white').save(image,format='PNG')
+    headers={'Authorization':f'Bearer {owner}'}
+    with patch.object(model_router,'embed',AsyncMock(side_effect=lambda texts:[[0.1]*768 for _ in texts])), patch('app.ingestion.extract._ocr_tesseract',AsyncMock(return_value=[{'page':1,'text':'Inspection cover','metadata':{}}])):
+        async with AsyncClient(transport=ASGITransport(app),base_url='http://test') as client:
+            upload=await client.post('/api/v1/conversations/upload',headers=headers,files={'file':('image.png',image.getvalue(),'image/png')})
+            assert upload.status_code==200,upload.text
+            source=upload.json()['source_id']
+            draft={'findings':[{'id':'v1','title':'Cover','detail':'A cover is visible.','evidence_refs':[source]}]}
+            checked={'findings':[{'id':'v1','verification_status':'supported'}],'overall_confidence':60}
+            with patch.object(model_router,'generate_vision',AsyncMock(return_value='A cover is visible.')) as vision, patch.object(model_router,'generate',AsyncMock(side_effect=[json.dumps(draft),json.dumps(checked)])):
+                result=await client.post('/api/v1/tasks',headers=headers,json={'query':'Describe the cover','mode':'vision','attachments':[{'filename':'image.png','source_id':source,'type':'image','url':upload.json()['url']}]})
+                task=(await client.get('/api/v1/tasks/'+result.json()['id'],headers=headers)).json()
+                assert task['status']=='awaiting_review',task
+                assert vision.await_args.kwargs['image_bytes']==image.getvalue()
+                assert model_router.get_model('vision') in task['models_used']
+                assert all(step['status']=='done' and step.get('started_at') for step in task['plan'])
+
+@pytest.mark.asyncio
+async def test_equipment_graph_is_persistent_and_scoped(setup):
+    from app.routers.knowledge_base import add_graph_node, get_graph
+    from app.models.ingestion import GraphNodeCreate
+    owner,other,*_=setup
+    async with async_session() as db:
+        session=await db.get(Session,owner)
+        await add_graph_node(GraphNodeCreate(equipment_id='TEST-900'),session,None,db)
+    async with async_session() as db:
+        session=await db.get(Session,owner)
+        assert [n['id'] for n in (await get_graph(session,None,db)).nodes]==['TEST-900']
+        stranger=await db.get(Session,other)
+        assert (await get_graph(stranger,None,db)).nodes==[]
+
+@pytest.mark.asyncio
+async def test_bearer_tokens_are_not_accepted_in_query_strings(setup):
+    owner,*_=setup
+    async with AsyncClient(transport=ASGITransport(app),base_url='http://test') as client:
+        assert (await client.get('/api/v1/tasks',params={'session_id':owner})).status_code==401

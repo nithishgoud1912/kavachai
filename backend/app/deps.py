@@ -6,7 +6,7 @@ Provides: DB session, session auth (FR-ACC-1/2), and common dependency injection
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Callable, Optional
-from fastapi import Header, Query, HTTPException, Depends
+from fastapi import Header, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -31,7 +31,6 @@ class Principal:
 async def get_current_session(
     authorization: Optional[str] = Header(None),
     x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
-    session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> SessionModel:
     """
@@ -39,7 +38,7 @@ async def get_current_session(
     Supports:
       1. Authorization: Bearer <session_id>
       2. X-Session-ID: <session_id>
-      3. Query parameter ?session_id=<session_id> (essential for SSE / EventSource & downloads)
+      Browser SSE/downloads authenticate through the same-origin cookie proxy.
 
     Validates:
       - Session exists in database
@@ -55,8 +54,6 @@ async def get_current_session(
             token = authorization.strip()
     elif x_session_id:
         token = x_session_id.strip()
-    elif session_id:
-        token = session_id.strip()
 
     if not token:
         raise HTTPException(
@@ -149,7 +146,6 @@ def require_permission(permission: str) -> Callable:
 async def get_optional_session(
     authorization: Optional[str] = Header(None),
     x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
-    session_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[SessionModel]:
     """Optional session authentication for non-blocking public / informational routes."""

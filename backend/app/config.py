@@ -5,7 +5,7 @@ Implements: NFR-MNT-2 (model swap via config only), NFR-SEC-1 (local-only endpoi
 """
 
 from pathlib import Path
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import json
@@ -46,9 +46,11 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 768
 
     # --- Performance ---
-    LLM_TIMEOUT_SECONDS: int = 60
-    AGENT_TIMEOUT_SECONDS: int = 30
-    VISION_TIMEOUT_SECONDS: int = 60
+    LLM_TIMEOUT_SECONDS: int = 300
+    LLM_CONTEXT_TOKENS: int = Field(default=8192, ge=4096, le=32768)
+    AGENT_TIMEOUT_SECONDS: int = 300
+    VISION_TIMEOUT_SECONDS: int = 180
+    VISION_MAX_IMAGE_EDGE: int = Field(default=1024, ge=512, le=4096)
 
     # --- Local security / RBAC ---
     # Set ENVIRONMENT=production and a long random BOOTSTRAP_TOKEN before first start.
