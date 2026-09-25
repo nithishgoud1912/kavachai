@@ -1,7 +1,0 @@
-{
-  "vision": {
-    "model": "qwen2.5vl:3b",
-    "returned_chars": 643,
-    "observation": "The equipment labels are M-102A and P-102A. The lower-right guard fixing point is marked as Detail A. The marked checklist answer is \"YES\" for the presence of coupling guard fixing bolts. The liquid collection value is 18 mL. The duration of the liquid collection is 10 minutes. The liquid identity is not confirmed. The collection location is the pump housing or drain area. The field note mentions that the residue visible at Detail B is unconfirmed. The inspection status is OPEN, pending reviewer assessment. The recording is by DEMO INSPECTOR, and the endorsement is not signed. The sample is synthetic and not issued or approved by MRPL."
-  }
-}
