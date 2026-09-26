@@ -48,7 +48,7 @@ async def models(type: str | None=None, session=Depends(get_current_session), db
     except Exception as exc: raise HTTPException(503, 'Local model service unavailable') from exc
     loaded={m['name']:m for m in running}
     return [dict(id=m['name'],name=m['name'],display_name=m['name'],provider='ollama',size=str(m.get('size',0)),
-                 context_length=loaded.get(m['name'],{}).get('context_length',0),capabilities=['code' if k=='coding' else 'reasoning' if k in ('text_reasoning','classification') else k for k,v in model_router._model_map.items() if v==m['name']],
+                 context_length=loaded.get(m['name'],{}).get('context_length',0),capabilities=list(dict.fromkeys(['code' if k=='coding' else 'reasoning' if k in ('text_reasoning','classification') else k for k,v in model_router._model_map.items() if v==m['name']])),
                  status='loaded' if m['name'] in loaded else 'cold',vram_usage_gb=loaded.get(m['name'],{}).get('size_vram',0)/1024**3,
                  max_vram_gb=0,latency_p95_ms=0,endpoint='local Ollama',digest=m.get('digest')) for m in tags]
 

@@ -54,9 +54,9 @@ export default function ModelRegistryTable({
                 </td>
                 <td className="py-3">
                   <div className="flex flex-wrap gap-1">
-                    {m.capabilities.map((c) => (
+                    {Array.from(new Set(m.capabilities || [])).map((c, idx) => (
                       <span
-                        key={c}
+                        key={`${c}-${idx}`}
                         className="px-2 py-0.5 rounded bg-surface-2 border border-border text-[10px] font-mono text-text-2 uppercase"
                       >
                         {c}
