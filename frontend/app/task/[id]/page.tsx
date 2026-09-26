@@ -137,6 +137,13 @@ export default function LiveTaskWorkspacePage({
           <div className="lg:col-span-5 space-y-6">
             <PlanTree plan={currentPlan} />
             <ToolCallTimeline toolCalls={currentToolCalls} />
+            {task.visual_coverage && task.visual_coverage.length > 0 && <div className="p-4 bg-surface border border-border rounded-xl space-y-2">
+              <h2 className="font-semibold">Visual page coverage</h2>
+              <p className="text-xs text-text-3">Selected pages and their recorded inspection outcome.</p>
+              {task.visual_coverage.map(page => <p className="text-xs" key={`${page.source_id}:${page.page}`}>
+                {page.filename}, page {page.page}: {page.status}{page.detail ? ` — ${page.detail}` : ""}
+              </p>)}
+            </div>}
           </div>
 
           {/* ─── Right Pane: Output, Artifacts & Citations (60% / 7 cols) */}

@@ -41,6 +41,9 @@ def extract_text(file_content: bytes, filename: str) -> List[Dict[str, Any]]:
         return _extract_pdf(file_content)
     elif suffix == ".docx":
         return _extract_docx(file_content)
+    elif suffix == ".xlsx":
+        from app.ingestion.spreadsheet import extract_spreadsheet
+        return extract_spreadsheet(file_content, filename)
     elif suffix in TEXT_SUFFIXES:
         return _extract_text(file_content, filename)
     else:
@@ -194,13 +197,16 @@ async def _ocr_tesseract(
     """Tier 2: Tesseract OCR for clean printed text."""
     try:
         import pytesseract
+        import asyncio
+        from app.config import settings
+        pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD
         from PIL import Image
         import io
 
         images = _content_to_images(file_content, suffix)
         pages = []
         for i, img in enumerate(images):
-            text = pytesseract.image_to_string(img)
+            text = await asyncio.to_thread(pytesseract.image_to_string, img, timeout=60)
             if text.strip():
                 pages.append({
                     "page": i + 1,

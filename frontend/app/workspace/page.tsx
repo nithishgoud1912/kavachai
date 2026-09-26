@@ -6,7 +6,7 @@ import AppShell from "@/app/components/AppShell";
 import TaskComposer from "@/app/components/TaskComposer";
 import Badge from "@/app/components/Badge";
 import ModelChip from "@/app/components/ModelChip";
-import { getTasks, getModels, getNetworkStatus } from "@/app/services/api";
+import { getTasks, getModels, getNetworkStatus, getReadiness, type RuntimeReadiness } from "@/app/services/api";
 import type { WorkbenchTask, ModelRegistryEntry, EgressReport } from "@/app/types";
 
 const SUGGESTIONS = [
@@ -36,10 +36,12 @@ export default function WorkspacePage() {
   const [tasks, setTasks] = useState<WorkbenchTask[]>([]);
   const [models, setModels] = useState<ModelRegistryEntry[]>([]);
   const [egress, setEgress] = useState<EgressReport | null>(null);
+  const [readiness, setReadiness] = useState<RuntimeReadiness | null>(null);
   const [composerQuery, setComposerQuery] = useState("");
   const [showRightRail, setShowRightRail] = useState(true);
 
   useEffect(() => {
+    getReadiness().then(setReadiness).catch(() => setReadiness(null));
     getTasks().then(setTasks).catch(() => {});
     getModels().then(setModels).catch(() => {});
     getNetworkStatus().then(setEgress).catch(() => {});
@@ -169,64 +171,40 @@ export default function WorkspacePage() {
 
               <div className="pt-1 text-[10px] font-mono text-text-3 flex items-center justify-between">
                 <span>VRAM Allocation:</span>
-                <span className="font-semibold text-accent">7.5 / 24.0 GB</span>
+                <span className="font-semibold text-accent">{models.length ? `${models.filter(m => m.status === "loaded").reduce((sum, m) => sum + m.vram_usage_gb, 0).toFixed(2)} GB loaded; capacity unknown` : "Unavailable"}</span>
               </div>
             </div>
 
             {/* System Health Card */}
             <div className="bg-surface border border-border rounded-2xl p-4 shadow-xs space-y-3">
               <div className="flex items-center justify-between border-b border-border-subtle pb-2">
-                <span className="text-xs font-serif font-bold text-text">Air-Gap Stack Health</span>
+                <span className="text-xs font-serif font-bold text-text">Observed Runtime Status</span>
                 <span className="w-2 h-2 rounded-full bg-green" />
               </div>
 
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between text-text-2">
                   <span>Ollama Engine:</span>
-                  <span className="font-mono text-green font-semibold">127.0.0.1:11434 OK</span>
+                  <span className="font-mono text-green font-semibold">{readiness ? (readiness.inference_available ? "Reachable" : "Unavailable") : "Unknown"}</span>
                 </div>
                 <div className="flex items-center justify-between text-text-2">
                   <span>FastAPI Core:</span>
-                  <span className="font-mono text-green font-semibold">127.0.0.1:8000 OK</span>
+                  <span className="font-mono text-green font-semibold">{readiness ? "Reachable" : "Unknown"}</span>
                 </div>
                 <div className="flex items-center justify-between text-text-2">
                   <span>Code Sandbox:</span>
-                  <span className="font-mono text-text font-semibold">Docker Isolated</span>
+                  <span className="font-mono text-text font-semibold">{readiness ? (readiness.sandbox_available ? "Worker reachable" : "Unavailable") : "Unknown"}</span>
                 </div>
                 <div className="flex items-center justify-between text-text-2">
                   <span>Socket Egress:</span>
-                  <span className="font-mono text-green font-semibold">0 External Calls</span>
+                  <span className="font-mono text-green font-semibold">{egress ? `${egress.external_recorded} recorded attempts` : "Unknown"}</span>
                 </div>
               </div>
             </div>
 
-            {/* Recent Audit Events */}
-            <div className="bg-surface border border-border rounded-2xl p-4 shadow-xs space-y-2.5">
-              <div className="flex items-center justify-between border-b border-border-subtle pb-2">
-                <span className="text-xs font-serif font-bold text-text">Recent Audit Trail</span>
-                <Link href="/audit" className="text-[10px] font-mono text-accent hover:underline">
-                  Full Local Audit →
-                </Link>
-              </div>
-
-              <div className="space-y-2 text-xs font-mono">
-                <div className="p-2 rounded-lg bg-surface-2/40 border border-border space-y-0.5">
-                  <div className="flex justify-between text-[10px] text-text-3">
-                    <span>Task Run</span>
-                    <span>10:14 AM</span>
-                  </div>
-                  <p className="text-text font-medium text-[11px] truncate">P-204 Vibration Overhaul Note</p>
-                  <p className="text-green text-[10px]">Verified 96% Conf.</p>
-                </div>
-                <div className="p-2 rounded-lg bg-surface-2/40 border border-border space-y-0.5">
-                  <div className="flex justify-between text-[10px] text-text-3">
-                    <span>Sandbox Exec</span>
-                    <span>10:14 AM</span>
-                  </div>
-                  <p className="text-text font-medium text-[11px] truncate">calculate_bearing_harmonics.py</p>
-                  <p className="text-accent text-[10px]">Exit Code 0 (No Egress)</p>
-                </div>
-              </div>
+            <div className="p-4 border border-border rounded-xl text-xs space-y-2">
+              <p>Air-gap verification: {readiness?.airgap_verified ? "Verified" : "Not verified"}. Application observations do not cover the whole host.</p>
+              <Link className="text-accent underline" href="/audit">Open actual audit events</Link>
             </div>
           </aside>
         )}

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import uuid
+import ast
 from app.config import settings
 
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -9,6 +10,26 @@ MEMORY_LIMIT = "256m"
 PIDS_LIMIT = 64
 MAX_OUTPUT_BYTES = 65536
 SANDBOX_IMAGE = settings.SANDBOX_IMAGE
+
+
+def parse_generated_code(raw: str) -> tuple[str, str]:
+    """Validate model output without executing it in the application process."""
+    generated = json.loads(raw)
+    if not isinstance(generated, dict):
+        raise ValueError('Return a JSON object with code and tests')
+    code, tests = generated.get('code'), generated.get('tests')
+    if isinstance(tests, list) and tests and all(isinstance(item, str) for item in tests):
+        tests = '\n'.join(tests)
+    if not isinstance(code, str) or not isinstance(tests, str):
+        raise ValueError('code must be Python text; tests must be Python text or a list of assertion strings')
+    try:
+        tree = ast.parse(tests)
+        ast.parse(code + '\n' + tests)
+    except SyntaxError as exc:
+        raise ValueError('Generated Python has invalid syntax') from exc
+    if not any(isinstance(node, ast.Assert) for node in tree.body):
+        raise ValueError('Tests must include a top-level executable assert statement')
+    return code, tests
 
 
 class SandboxResult:

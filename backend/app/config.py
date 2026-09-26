@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     MAX_EXTRACTED_BYTES: int = 100 * 1024 * 1024
     MAX_DOCUMENT_PAGES: int = 100
     MAX_BATCH_FILES: int = 20
+    TESSERACT_CMD: str = (str(Path("C:/Program Files/Tesseract-OCR/tesseract.exe"))
+                         if Path("C:/Program Files/Tesseract-OCR/tesseract.exe").is_file() else "tesseract")
     SANDBOX_IMAGE: str = "python:3.11-slim"
     RETRIEVAL_MIN_SCORE: float = 0.25
     VISION_MODEL: str = "qwen2.5vl:3b"

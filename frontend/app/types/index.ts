@@ -410,6 +410,7 @@ export interface ArtifactItem {
 }
 
 export interface WorkbenchTask {
+  visual_coverage?: { source_id: string; filename: string; page: number; status: "pending" | "failed" | "completed"; detail?: string }[];
   version: number;
   id: string;
   query: string;

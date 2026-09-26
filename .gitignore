@@ -100,3 +100,9 @@ Thumbs.db
 **/kavachai_checkpoints.db*
 /frontend/frontend/
 reports/
+
+docs/
+.local/
+output/
+tmp/
+/tests/

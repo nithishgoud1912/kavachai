@@ -21,10 +21,16 @@ def _source_text(finding):
 def _specialist_sections(report):
     """Keep original specialist results in exports even when synthesis omits them."""
     sections = []
+    for page in report.get('visual_coverage', []):
+        sections.append(('Visual page coverage',
+                         f"{page['filename']} / {page['source_id']}, page {page['page']}: {page['status']}"))
     for item in report.get('visual_observations', []):
         sections.append(('Visual observation - human comparison required',
                          f"Source: {item['filename']} / {item['source_id']}, page {item['page']}\n{item['observation']}"))
     for table in report.get('calculation_results', []):
+        for row in table.get('row_provenance', []):
+            import json
+            sections.append(('Calculation source record', json.dumps(row, ensure_ascii=False)))
         lines = [f"Source: {table['filename']} / {table['source_id']}; {table['table']}; page {table.get('page') or 'n/a'}",
                  'Calculated from original table rows by the bounded local calculator. Units follow the column headers.']
         for metric in table['results']:

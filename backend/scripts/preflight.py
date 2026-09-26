@@ -42,7 +42,8 @@ async def main():
         await model_router.close()
     checks['docker'] = await command('docker', 'info', '--format', '{{.ServerVersion}}')
     checks['sandbox_image'] = await command('docker', 'image', 'inspect', settings.SANDBOX_IMAGE, '--format', '{{.Id}}')
-    checks['ocr'] = await command(shutil.which('tesseract') or 'tesseract', '--list-langs')
+    checks['ocr'] = await command(settings.TESSERACT_CMD, '--list-langs')
+    checks['ocr']['ok'] = checks['ocr']['ok'] and 'eng' in checks['ocr'].get('output', '').splitlines()
     checks['airgap_evidence'] = {"ok": False, "error": "Requires deployment firewall review and packet capture across host, browser, model service and worker; this script cannot certify it."}
     runtime_ready = all(value['ok'] for key, value in checks.items() if key != 'airgap_evidence')
     print(json.dumps({"runtime_ready": runtime_ready, "airgap_verified": False, "checks": checks}, indent=2))

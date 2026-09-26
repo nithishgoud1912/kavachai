@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -45,10 +46,13 @@ class NumericTable:
     columns: list[str]
     rows: list[dict[str, str]]
     row_numbers: list[int] = field(default_factory=list)
+    row_provenance: list[dict] = field(default_factory=list)
 
     @cached_property
     def numeric_columns(self):
-        return [col for col in self.columns if sum(_number(row[col]) is not None for row in self.rows) >= 2]
+        identities = {'asset_id', 'equipment_id', 'asset_tag', 'metric', 'unit'}
+        return [col for col in self.columns if col.lower().replace(' ', '_') not in identities
+                and sum(_number(row[col]) is not None for row in self.rows) >= 2]
 
 
 @dataclass
@@ -102,18 +106,83 @@ def _separate_series(table: NumericTable) -> list[NumericTable]:
         return [table]
     return [NumericTable(table.source_id, table.filename, table.page,
                          table.name + ' / ' + ', '.join(f'{key}={value}' for key, value in zip(keys, identity)),
-                         table.columns, rows, numbers)
+                         table.columns, rows, numbers,
+                         [p for n, p in zip(table.row_numbers, table.row_provenance) if n in numbers])
             for identity, (rows, numbers) in groups.items() if len(rows) >= 2]
 
 
-def inspect_attachments(attachments: list[dict], *, force_vision=False) -> InspectionInputs:
+def _extract_telemetry_tables(attachments: list[dict]) -> list[NumericTable]:
+    """Only combine explicitly identified asset/metric/unit series; retain every source."""
+    groups = {}
+    seen_sources = set()
+    for attachment in attachments:
+        source_id = attachment['source_id']
+        if source_id in seen_sources:
+            continue
+        seen_sources.add(source_id)
+        raw = object_store.get_raw_file(source_id)
+        if not raw:
+            raise ValueError('Authorized attachment is no longer available')
+        data, filename = raw
+        suffix = filename.lower().rsplit('.', 1)[-1]
+        if suffix == 'pdf':
+            with pymupdf.open(stream=data, filetype='pdf') as doc:
+                pages = [(i + 1, page.get_text()) for i, page in enumerate(doc)]
+        elif suffix in ('txt', 'text', 'md', 'log'):
+            pages = [(1, data.decode('utf-8-sig'))]
+        else:
+            continue
+        for page, text in pages:
+            # A page is one record. Multiple dates/assets require structured input.
+            dates = re.findall(r'(?im)^\s*(?:Inspection\s+)?Date:\s*(\d{4}-\d{2}-\d{2})\s*$', text)
+            assets = re.findall(r'(?im)^\s*(?:Asset|Equipment)(?:[ _](?:ID|Tag))?:\s*([^\n]+)$', text)
+            measurements = list(re.finditer(r'(?m)^[ \t]*-[ \t]*([^:\n]+):[ \t]*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([^\n]*)$', text))
+            if not measurements:
+                continue
+            if len(dates) != 1 or len(assets) != 1 or not assets[0].strip():
+                raise ValueError(f'{filename}, page {page}: narrative measurements require one explicit Asset/Equipment ID and ISO Date per page; use a structured table for multiple records')
+            datetime.fromisoformat(dates[0])
+            for match in measurements:
+                metric, value, unit = (part.strip() for part in match.groups())
+                if not unit or not re.fullmatch(r'[A-Za-z%°µμ/²³0-9 .^_-]+', unit) or _number(value) is None:
+                    raise ValueError(f'{filename}, page {page}: ambiguous measurement or missing unit for {metric}')
+                asset = assets[0].strip()
+                row = {'Date': dates[0], 'asset_id': asset, 'metric': metric, 'value': value, 'unit': unit}
+                provenance = {'source_id': source_id, 'filename': filename, 'page': page,
+                              'row': text[:match.start()].count('\n') + 1, **row}
+                groups.setdefault((asset, metric, unit), []).append((row, provenance))
+    tables = []
+    for identity, records in groups.items():
+        if len(records) < 2:
+            raise ValueError('No comparable narrative series: every asset/metric/unit group needs at least two records; use a structured table for isolated measurements')
+        records.sort(key=lambda record: record[0]['Date'])
+        first = records[0][1]
+        tables.append(NumericTable(first['source_id'], first['filename'], first['page'],
+                                   ' / '.join(identity), list(records[0][0]),
+                                   [record[0] for record in records],
+                                   [record[1]['row'] for record in records],
+                                   [record[1] for record in records]))
+    if groups and not tables:
+        raise ValueError('No comparable narrative series: at least two records must have the same explicit asset, metric and unit; no unit conversions are inferred')
+    return tables
+
+
+def inspect_attachments(attachments: list[dict], *, force_vision=False, query: str = "") -> InspectionInputs:
     """Inspect stored bytes rather than trusting extensions or text from the client.
 
-    Text PDFs don't need a VLM unless explicitly requested. Images, scans and
-    diagram pages do. Numeric tables independently opt into the coder stage.
+    Text PDFs don't need a VLM unless explicitly requested or visual elements/queries exist.
+    Images, scans and diagram pages do. Numeric tables independently opt into the coder stage.
     """
     inputs = InspectionInputs()
     seen = set()
+    query_lower = (query or "").lower()
+    is_visual_query = any(w in query_lower for w in (
+        'p&id', 'pid', 'diagram', 'drawing', 'schematic', 'image', 'photo',
+        'scan', 'visual', 'defect', 'layout', 'inspect', 'checklist', 'plate',
+        'detail', 'coupling guard', 'look', 'see', 'view', 'figure'
+    ))
+    enable_vision = force_vision or is_visual_query
+
     for attachment in attachments:
         source = attachment['source_id']
         if source in seen:
@@ -133,18 +202,18 @@ def inspect_attachments(attachments: list[dict], *, force_vision=False) -> Inspe
                     if page_index >= 100:
                         raise ValueError('PDF analysis supports at most 100 pages; split the document')
                     text = page.get_text().strip()
-                    # Ignore small repeated logo images; retain scans and visual plates.
+                    # Retain scans, plates, diagrams or explicit visual requests
                     visual_image = any(
                         (pymupdf.Rect(info['bbox']) & page.rect).get_area() > page.rect.get_area() * 0.08
                         for info in page.get_image_info()
                     )
                     diagram = len(text) < 800 and len(page.get_drawings()) >= 12
-                    if force_vision or visual_image or diagram or len(text) < 80:
+                    if enable_vision or visual_image or diagram or len(text) < 80:
                         inputs.visuals.append(VisualPage(source, filename, page_index + 1, True))
                     for index, found in enumerate(page.find_tables().tables):
                         cells = found.extract()
                         # Ignore document-control and narrative tables without numeric data.
-                        if not any(_number(str(cell or '')) is not None for row in cells[1:] for cell in row):
+                        if not any(_number(str(cell) if cell is not None else '') is not None for row in cells[1:] for cell in row):
                             continue
                         table = _table(source, filename, page_index + 1, f'page {page_index + 1}, table {index + 1}', cells)
                         if table:
@@ -165,24 +234,21 @@ def inspect_attachments(attachments: list[dict], *, force_vision=False) -> Inspe
             if table:
                 tables.append(table)
         elif suffix == 'xlsx':
-            from openpyxl import load_workbook
-            # Formula results without a cached value remain missing, not invented.
-            wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-            try:
-                for sheet in wb:
-                    cells = []
-                    for index, row in enumerate(sheet.iter_rows(values_only=True)):
-                        if index > MAX_ROWS or len(row) > MAX_COLUMNS:
-                            raise ValueError(f'{filename}: worksheet too large; split the input')
-                        cells.append([x.isoformat() if isinstance(x, datetime) else x for x in row])
-                    table = _table(source, filename, None, sheet.title, cells)
-                    if table:
-                        tables.append(table)
-            finally:
-                wb.close()
+            from app.ingestion.spreadsheet import read_sheets
+            for sheet in read_sheets(data, filename):
+                table = _table(source, filename, sheet['page'], sheet['name'], sheet['rows'])
+                if table:
+                    table.row_provenance = [{'source_id': source, 'filename': filename, 'page': sheet['page'],
+                                             **sheet['provenance'][number - 1]} for number in table.row_numbers]
+                    tables.append(table)
         inputs.tables.extend(group for table in tables for group in _separate_series(table))
-        if len(inputs.visuals) > MAX_VISUAL_PAGES or len(inputs.tables) > MAX_TABLES:
-            raise ValueError(f'Analysis supports {MAX_VISUAL_PAGES} visual pages and {MAX_TABLES} numeric tables per task; split the request')
+
+    # If no bordered tables were present, extract numeric operating parameters as a telemetry table
+    if not inputs.tables:
+        inputs.tables.extend(_extract_telemetry_tables(attachments))
+
+    if len(inputs.visuals) > MAX_VISUAL_PAGES or len(inputs.tables) > MAX_TABLES:
+        raise ValueError(f'Analysis supports {MAX_VISUAL_PAGES} visual pages and {MAX_TABLES} numeric tables per task; split the request')
     if force_vision and not inputs.visuals:
         raise ValueError('Vision tasks require an attached image or PDF')
     return inputs
@@ -230,6 +296,12 @@ def evaluate_plan(table: NumericTable, plan: CalculationPlan) -> list[dict]:
             raise ValueError('No valid numeric values')
         numbers = [item[0] for item in values]
         result = {'column': metric.column, 'operation': metric.operation, 'valid_rows': len(values), 'missing_rows': missing}
+        unit_column = next((col for col in table.columns if col.casefold() == 'unit'), None)
+        if unit_column:
+            units = {row[unit_column] for row in table.rows}
+            if len(units) != 1 or next(iter(units)).casefold() in MISSING:
+                raise ValueError('Calculation requires one explicit compatible unit')
+            result['input_unit'] = result['unit'] = next(iter(units))
         if metric.operation == 'mean':
             value = sum(numbers) / len(numbers)
         elif metric.operation in ('min', 'max'):
@@ -282,6 +354,9 @@ async def analyse_table(table: NumericTable, query: str) -> dict:
             return {'source_id': table.source_id, 'filename': table.filename, 'page': table.page,
                     'table': table.name, 'row_count': len(table.rows), 'plan': plan.model_dump(),
                     'results': results, 'execution': 'bounded_local_calculator',
+                    'row_provenance': table.row_provenance or [
+                        {'source_id': table.source_id, 'filename': table.filename, 'page': table.page,
+                         'row': number, 'values': row} for number, row in zip(table.row_numbers, table.rows)],
                     'limitations': 'Only requested supported operations are computed. Units follow column headers. '
                     'No threshold crossing, causation or engineering fitness assessment is computed.'}
         except (ValueError, TypeError, InvalidOperation) as exc:

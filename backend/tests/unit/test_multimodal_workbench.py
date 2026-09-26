@@ -165,6 +165,7 @@ async def test_pdf_plus_csv_uses_all_three_models_in_one_word_task(vision_fails)
             assert vision.await_count == 1
             sandbox.assert_not_awaited()
             if vision_fails:
+                assert task['visual_coverage'][0]['status'] == 'failed'
                 assert task['status'] == 'failed'
                 assert not task['artifacts']
                 assert task['plan'][1]['status'] == 'failed'
@@ -172,6 +173,7 @@ async def test_pdf_plus_csv_uses_all_three_models_in_one_word_task(vision_fails)
                 assert 'coding' not in calls
                 return
             assert task['status'] == 'awaiting_review', task
+            assert task['visual_coverage'][0]['status'] == 'completed'
             assert set(task['models_used']) == {model_router.get_model(kind) for kind in ('embedding','vision','coding','text_reasoning')}
             assert 'coding' in calls and calls.count('text_reasoning') == 2
             assert all(item['status'] == 'done' for item in task['plan'])

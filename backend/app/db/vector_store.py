@@ -65,6 +65,13 @@ class VectorStore:
             if stale:
                 self._collection.delete(ids=stale)
 
+    def get_source_chunks(self, source_id: str) -> list[dict]:
+        """Caller must authorize the source before retrieving its original chunks."""
+        result = self._collection.get(where={"source_id": source_id}, include=["documents", "metadatas"])
+        chunks = [{"id": id, "text": text, "metadata": metadata}
+                  for id, text, metadata in zip(result['ids'], result['documents'], result['metadatas'])]
+        return sorted(chunks, key=lambda chunk: chunk['metadata'].get('chunk_index', 0))
+
     def query(
         self,
         query_embedding: List[float],

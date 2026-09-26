@@ -49,6 +49,9 @@ def tag_chunks(
 
         # Build metadata dict (ChromaDB-compatible: no nested objects, no list values)
         metadata = {
+            **{key: value for key, value in chunk.get("metadata", {}).items()
+               if key in {"format", "sheet", "row", "cells", "ocr_engine", "visual_content"}
+               and isinstance(value, (str, int, float, bool))},
             "source_id": source_id,
             "filename": filename,
             "page": chunk["page"],

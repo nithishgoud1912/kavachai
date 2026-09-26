@@ -31,6 +31,26 @@ import type {
 
 export type { AttachmentItem };
 
+export interface StoredDocument {
+  document_id: string; source_id: string; filename: string; document_type: string;
+  status: string; pages: number; chunks: number; equipment_ids: string[];
+  department_scope: string | null; ingested_at: string;
+}
+export interface StoredChunk { id: string; text: string; metadata: Record<string, string | number | boolean>; }
+export async function listStoredDocuments(): Promise<{ documents: StoredDocument[] }> {
+  return handleResponse(await fetch(`${API_BASE}/knowledge-base/documents`, { credentials: "include", cache: "no-store" }));
+}
+export async function getStoredDocument(id: string): Promise<StoredDocument> {
+  return handleResponse(await fetch(`${API_BASE}/knowledge-base/documents/${encodeURIComponent(id)}`, { credentials: "include", cache: "no-store" }));
+}
+export async function getStoredChunks(id: string, offset = 0): Promise<{ chunks: StoredChunk[]; total: number }> {
+  return handleResponse(await fetch(`${API_BASE}/knowledge-base/documents/${encodeURIComponent(id)}/chunks?offset=${offset}`, { credentials: "include", cache: "no-store" }));
+}
+export interface RuntimeReadiness { inference_available: boolean; sandbox_available: boolean; network_observer_active: boolean; airgap_verified: boolean; }
+export async function getReadiness(): Promise<RuntimeReadiness> {
+  return handleResponse(await fetch(`${API_BASE}/readiness`, { credentials: "include", cache: "no-store" }));
+}
+
 // Response type aliases for chat endpoints
 type ChatMessageItem = ChatMessage;
 type UploadedFile = {

@@ -12,10 +12,10 @@ interface KBSummaryHeaderProps {
 }
 
 export default function KBSummaryHeader({
-  totalDocs = 18,
-  totalChunks = 1240,
-  totalPid = 6,
-  storageMb = 142.5,
+  totalDocs,
+  totalChunks,
+  totalPid,
+  storageMb,
   className = "",
 }: KBSummaryHeaderProps) {
   return (
@@ -33,26 +33,26 @@ export default function KBSummaryHeader({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
         <div className="space-y-1">
           <p className="text-[11px] font-mono uppercase text-text-3">Ingested Documents</p>
-          <p className="text-2xl font-serif font-bold text-text">{totalDocs}</p>
-          <p className="text-[10px] text-green font-mono">Ready document records</p>
+          <p className="text-2xl font-serif font-bold text-text">{totalDocs ?? "Unknown"}</p>
+          <p className="text-[10px] text-text-3 font-mono">Authorized document records</p>
         </div>
 
         <div className="space-y-1">
           <p className="text-[11px] font-mono uppercase text-text-3">Text & Vector Chunks</p>
-          <p className="text-2xl font-serif font-bold text-accent">{totalChunks.toLocaleString()}</p>
-          <p className="text-[10px] text-text-3 font-mono">Nomic Embed 768-dim</p>
+          <p className="text-2xl font-serif font-bold text-accent">{totalChunks?.toLocaleString() ?? "Unknown"}</p>
+          <p className="text-[10px] text-text-3 font-mono">Stored chunks</p>
         </div>
 
         <div className="space-y-1">
           <p className="text-[11px] font-mono uppercase text-text-3">P&ID Engineering Drawings</p>
-          <p className="text-2xl font-serif font-bold text-text">{totalPid}</p>
-          <p className="text-[10px] text-accent font-mono">Topological Graph Linked</p>
+          <p className="text-2xl font-serif font-bold text-text">{totalPid ?? "Unknown"}</p>
+          <p className="text-[10px] text-text-3 font-mono">Classified as P&ID</p>
         </div>
 
         <div className="space-y-1">
           <p className="text-[11px] font-mono uppercase text-text-3">Local Storage Footprint</p>
-          <p className="text-2xl font-serif font-bold text-text">{storageMb.toFixed(1)} MB</p>
-          <p className="text-[10px] text-text-3 font-mono">Encrypted At Rest</p>
+          <p className="text-2xl font-serif font-bold text-text">{storageMb === undefined ? "Not measured" : `${storageMb.toFixed(1)} MB`}</p>
+          <p className="text-[10px] text-text-3 font-mono">Storage encryption is not measured here</p>
         </div>
       </div>
     </div>

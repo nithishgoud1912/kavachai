@@ -48,6 +48,7 @@ def chunk_pages(
                     "text": chunk_text.strip(),
                     "page": page_num,
                     "chunk_index": chunk_index,
+                    "metadata": dict(page_data.get("metadata", {})),
                 })
                 chunk_index += 1
 

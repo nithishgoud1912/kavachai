@@ -1,0 +1,25 @@
+# Dedicated rootless Docker daemon. No general host Docker socket is mounted.
+# Preload both images before offline operation; never pull at task runtime.
+services:
+  sandbox-worker:
+    image: ${WORKER_IMAGE:-docker:27-dind-rootless}
+    pull_policy: never
+    container_name: kavachai-sandbox-worker
+    privileged: true # Required by rootless Docker-in-Docker; use a dedicated VM for stronger separation.
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    ports:
+      - "127.0.0.1:2376:2376"
+    volumes:
+      - worker-data:/home/rootless/.local/share/docker
+      - worker-certs:/certs
+    networks:
+      - worker-isolated
+
+volumes:
+  worker-data:
+  worker-certs:
+networks:
+  worker-isolated:
+    internal: true

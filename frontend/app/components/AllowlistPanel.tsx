@@ -8,14 +8,7 @@ interface AllowlistPanelProps {
 }
 
 export default function AllowlistPanel({
-  allowlist = [
-    "127.0.0.1:11434 (Local Ollama Engine - Qwen 2.5 / CodeLlama)",
-    "localhost:11434 (Local Ollama Engine)",
-    "127.0.0.1:8000 (FastAPI Core Backend Engine)",
-    "localhost:8000 (FastAPI Core Backend Engine)",
-    "127.0.0.1:5432 (Local PostgreSQL Vector Database)",
-    "internal://chromadb (In-Memory On-Premise Vector Store)",
-  ],
+  allowlist = [],
   className = "",
 }: AllowlistPanelProps) {
   return (
@@ -24,15 +17,16 @@ export default function AllowlistPanel({
         <div>
           <h3 className="font-serif font-bold text-base text-text">Authorized Sovereign Allowlist</h3>
           <p className="text-xs text-text-3 font-mono">
-            Strict loopback policy — any destination outside this list triggers immediate kernel block
+            Configured application destinations; this panel does not measure kernel enforcement
           </p>
         </div>
         <span className="text-xs font-mono px-2 py-0.5 rounded bg-green/10 text-green font-semibold">
-          Hardened Policy
+          Application Policy
         </span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        {allowlist.length === 0 && <p className="text-xs text-text-3">Allowlist unavailable.</p>}
         {allowlist.map((host, idx) => (
           <div
             key={idx}

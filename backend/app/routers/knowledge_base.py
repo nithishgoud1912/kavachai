@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 from app.access import assert_owner, owner_filter
 from app.ingestion.limits import read_upload
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List
@@ -101,6 +101,7 @@ async def upload_document(
         pages = await extract_text_with_ocr(file_content, safe_filename)
 
         if pages:
+            doc.pages = max(page['page'] for page in pages)
             # Chunk text (FR-ING-3)
             chunks = chunk_pages(pages)
 
@@ -140,7 +141,41 @@ async def upload_document(
     )
 
 
-@router.get("/documents/{document_id}", response_model=DocumentDetailResponse)
+def _document_data(doc):
+    return dict(document_id=doc.id, source_id=doc.source_id, filename=doc.filename,
+                document_type=doc.document_type, status=doc.status, pages=doc.pages, chunks=doc.chunks,
+                equipment_ids=doc.equipment_ids or [], department_scope=doc.department_scope,
+                ingested_at=doc.ingested_at.isoformat() + 'Z')
+
+
+@router.get('/documents')
+async def list_documents(current_session=Depends(get_current_session),
+                         principal=Depends(require_permission('document:read')), db=Depends(get_db)):
+    records = (await db.execute(select(Document).where(owner_filter(Document, current_session, shared=True))
+                               .order_by(Document.ingested_at.desc()))).scalars()
+    visible = []
+    for doc in records:
+        try:
+            await assert_owner(doc, current_session, db, shared=True)
+        except HTTPException:
+            continue
+        visible.append(_document_data(doc))
+    return {'documents': visible}
+
+
+@router.get('/documents/{document_id}/chunks')
+async def document_chunks(document_id: str, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100),
+                          current_session=Depends(get_current_session),
+                          principal=Depends(require_permission('document:read')), db=Depends(get_db)):
+    doc = await db.get(Document, document_id)
+    if not doc:
+        raise HTTPException(404, 'Document not found')
+    await assert_owner(doc, current_session, db, shared=True)
+    chunks = vector_store.get_source_chunks(doc.source_id)
+    return {'chunks': chunks[offset:offset + limit], 'total': len(chunks), 'offset': offset}
+
+
+@router.get("/documents/{document_id}")
 async def get_document(
     document_id: str,
     current_session: SessionModel = Depends(get_current_session),
@@ -157,16 +192,7 @@ async def get_document(
         raise HTTPException(status_code=404, detail="Document not found")
     await assert_owner(doc, current_session, db, shared=True)
 
-    return DocumentDetailResponse(
-        document_id=doc.id,
-        filename=doc.filename,
-        document_type=doc.document_type,
-        status=doc.status,
-        pages=doc.pages,
-        chunks=doc.chunks,
-        equipment_ids=doc.equipment_ids or [],
-        ingested_at=doc.ingested_at.isoformat() + "Z",
-    )
+    return _document_data(doc)
 
 
 @router.post("/datasets", response_model=DatasetUploadResponse)

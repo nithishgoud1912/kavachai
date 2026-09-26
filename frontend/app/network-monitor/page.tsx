@@ -14,7 +14,7 @@ export default function NetworkMonitorPage() {
   return (
     <AppShell
       title="Sovereign Egress & Air-Gap Monitor"
-      subtitle="Kernel Socket Audit & Zero-Leak Verification"
+      subtitle="Application connection observations; full air-gap verification requires deployment evidence"
       breadcrumbs={[
         { label: "Workspace", href: "/workspace" },
         { label: "Egress Monitor" },
