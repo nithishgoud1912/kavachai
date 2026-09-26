@@ -157,7 +157,7 @@ async def seed():
             await db.flush()
 
         await db.commit()
-    print("Successfully seeded all 5 canonical demo users:")
+    print(f"Successfully seeded all {len(DEMO_USERS)} demo users:")
     for u in DEMO_USERS:
         print(f"  - {u['username']} ({', '.join(u['roles'])}) [Dept: {u['department']}, Clearance: {u['clearance']}, MFA: {u['mfa_enabled']}]")
 

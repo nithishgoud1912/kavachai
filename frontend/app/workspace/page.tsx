@@ -162,7 +162,7 @@ export default function WorkspacePage() {
                   >
                     <div className="truncate min-w-0 pr-1">
                       <p className="font-mono font-semibold text-text truncate">{m.name}</p>
-                      <p className="text-[10px] text-text-3 font-mono">{m.capabilities.join(", ")}</p>
+                      <p className="text-[10px] text-text-3 font-mono">{Array.from(new Set(m.capabilities || [])).join(", ")}</p>
                     </div>
                     <Badge variant={m.status === "loaded" ? "complete" : "partial"} label={m.status} size="sm" />
                   </div>
