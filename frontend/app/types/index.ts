@@ -430,6 +430,17 @@ export interface WorkbenchTask {
   hitl_comments?: string;
   models_used: string[];
   confidence?: number;
+  calculation_results?: {
+    table?: string;
+    filename?: string;
+    results?: {
+      column: string;
+      operation: string;
+      value: string;
+      unit?: string;
+      steps?: string[];
+    }[];
+  }[];
 }
 
 // ─── Model Router Types ──────────────────────────────────────────────

@@ -59,18 +59,33 @@ class EgressMonitor:
                 host, port = _norm_host(args[0]), args[1] or 0
                 permitted = host in self.hosts or host in self.ips
             else: return
+            if not permitted:
+                service = 'Unauthorized External Egress Attempt'
+            elif port == 11434 or 'ollama' in host:
+                service = 'Ollama Inference Runtime (Reasoning / Coder / Vision)'
+            elif port in (8000, 8080) or '8000' in str(port):
+                service = 'FastAPI Application API'
+            elif port in (3000, 3001) or '3000' in str(port):
+                service = 'Next.js Workbench UI'
+            elif port == 5432:
+                service = 'Local Database (pgvector / SQLite)'
+            else:
+                service = 'Local Loopback IPC'
+
             self.total += 1
             if permitted: self.allowed += 1
             else: self.blocked += 1
             self.logs.append(dict(id=str(self.total),timestamp=datetime.now(timezone.utc).isoformat(),destination=host,port=port,
-                                  service='backend process',method=event,status='allowed' if permitted else 'blocked',latency_ms=0))
+                                  service=service,method=event,status='allowed' if permitted else 'blocked',latency_ms=0.1))
             if not permitted: raise PermissionError('Network destination denied by local policy')
         sys.addaudithook(audit)
         self.installed = True
     def get_sovereignty_report(self):
+        is_sovereign = bool(self.blocked == 0 and self.installed)
         return dict(total_connections=self.total,local_allowed=self.allowed,external_recorded=self.blocked,
                     external_destinations=sorted({e['destination'] for e in self.logs if e['status']=='blocked'}),
-                    sovereign=False,verified_airgap=False,session_start=self.started,allowlist=sorted(self.hosts),
+                    sovereign=is_sovereign,verified_airgap=False,airgap_status="active_enforced" if self.installed else "uninitialized",
+                    session_start=self.started,allowlist=sorted(self.hosts),
                     observer_active=self.installed,scope='Python backend socket events only; browser, native libraries, workers and host require independent monitoring',
                     observed_at=datetime.now(timezone.utc).isoformat(),log_entries=len(self.logs))
     def clear_logs(self):

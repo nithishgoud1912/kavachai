@@ -12,6 +12,7 @@ import TaskFollowUpInput from "@/app/components/TaskFollowUpInput";
 import SourceCitation from "@/app/components/SourceCitation";
 import SourceViewer from "@/app/components/SourceViewer";
 import SandboxBlockedState from "@/app/components/SandboxBlockedState";
+import EngineeringCalculationsCard from "@/app/components/EngineeringCalculationsCard";
 import Toast, { type ToastMessage } from "@/app/components/Toast";
 import { useTask } from "@/app/hooks/useTask";
 import { useTaskStream } from "@/app/hooks/useTaskStream";
@@ -163,6 +164,11 @@ export default function LiveTaskWorkspacePage({
               content={currentReasoning}
               isStreaming={stream.isStreaming}
             />
+
+            {/* Engineering Calculations with Steps */}
+            {task.calculation_results && task.calculation_results.length > 0 && (
+              <EngineeringCalculationsCard calculationResults={task.calculation_results} />
+            )}
 
             {/* Generated Deliverables Artifacts Gallery */}
             <ArtifactGallery artifacts={currentArtifacts} taskId={task.id} />

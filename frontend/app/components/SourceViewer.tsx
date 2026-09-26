@@ -225,7 +225,7 @@ function PidView({ evidence }: { evidence: PidEvidence }) {
           {evidence.filename}
         </h4>
         <span className="text-[11px] font-[family-name:var(--font-mono)] bg-teal/10 text-teal border border-teal/20 px-2 py-0.5 rounded-full">
-          Qwen2.5-VL Grounded
+          vision language model Grounded
         </span>
       </div>
 

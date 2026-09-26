@@ -2,6 +2,7 @@
 
 import React from "react";
 import type { RoutingDecisionLog } from "@/app/types";
+import { getModelDisplayName } from "@/app/utils/modelNames";
 
 interface LiveRoutingLogProps {
   logs: RoutingDecisionLog[];
@@ -37,7 +38,7 @@ export default function LiveRoutingLog({ logs, className = "" }: LiveRoutingLogP
             </p>
 
             <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border-subtle">
-              <span className="text-accent font-bold">{log.selected_model}</span>
+              <span className="text-accent font-bold">{getModelDisplayName(log.selected_model)}</span>
               <span className="text-text-3">·</span>
               <span className="text-text-2 font-sans text-[11px] truncate max-w-sm">
                 {log.reason}

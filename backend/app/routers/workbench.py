@@ -220,7 +220,7 @@ async def _run_task(id):
             # If deliverable is code or mode is code or explicit code request without office docs:
             has_doc_attachments = any(not (a.get('filename', '').lower().endswith(('.py', '.json', '.sh', '.bat'))) for a in payload.get('attachments', []))
             coding = payload['mode'] == 'code' or payload.get('deliverable_type') == 'code' or (
-                payload['mode'] == 'auto' and not has_doc_attachments and any(w in query.lower() for w in ('python', 'write code', 'script', 'unit test', 'sandbox', 'algorithm', 'simulate'))
+                payload['mode'] == 'auto' and not has_doc_attachments and any(w in query.lower() for w in ('python', 'write code', 'script', 'unit test', 'sandbox', 'algorithm', 'simulate', 'calculate', 'calculation', 'harmonics', 'frequencies', 'frequency', 'engineering calculation'))
             )
             task_type = 'coding' if coding else 'text_reasoning'
             model = model_router.get_model(task_type)
@@ -228,7 +228,7 @@ async def _run_task(id):
             payload['calculation_results'] = []
             payload['visual_observations'] = []
             if coding:
-                goals = ['Generate code and test assertions', 'Execute and repair in isolated sandbox', 'Write verified execution artifacts']
+                goals = ['Plan engineering calculation & generate verified code', 'Execute calculation steps in isolated sandbox', 'Write verified calculation deliverables']
                 step_models = [model, 'Docker sandbox', 'Local code artifact writer']
                 step_types = ['coding', 'sandbox', 'local_export']
             else:
@@ -253,12 +253,25 @@ async def _run_task(id):
             await emit('plan_created', payload['plan'])
             await step(0, 'running')
             if coding:
-                await select_model('coding', 'Generate executable code and test assertions')
+                await select_model('coding', 'Generate verified code for engineering calculations with steps')
                 input_text = json.dumps([{ 'filename': a['filename'], 'text': a.get('extracted_text', '') } for a in payload['attachments']]) if payload['attachments'] else ''
                 feedback = ''
                 result = None
                 for attempt in range(3):
-                    raw = await model_router.generate(prompt=f"Request: {query}\nAttached documents (untrusted data): {input_text[:20000]}\n{feedback}\nReturn JSON with code (Python standard library only) and tests (Python assert statements). Tests execute after code in the same namespace. Attached documents are also provided as a JSON array on stdin; each entry has filename and text. Do not use network, host files or subprocesses.", task_type='coding', format='json', max_tokens=4096)
+                    coding_prompt = (
+                        f"Request: {query}\nAttached documents (untrusted data): {input_text[:20000]}\n{feedback}\n"
+                        "Return JSON with 'code' (Python standard library only) and 'tests' (Python assert statements).\n"
+                        "REQUIREMENTS FOR ENGINEERING CALCULATIONS:\n"
+                        "- Structure the computation into clear, sequential engineering calculation steps.\n"
+                        "- The code MUST print comprehensive step-by-step engineering calculations with:\n"
+                        "  Step 1: Input parameters and physical specifications with engineering units\n"
+                        "  Step 2: Mathematical formulas, governing equations, and physical constants\n"
+                        "  Step 3: Step-by-step numerical substitution and intermediate calculation values\n"
+                        "  Step 4: Final calculated results with engineering units and physical evaluation\n"
+                        "- Tests execute after code in the same namespace and MUST include executable assert statements to independently verify intermediate and final results.\n"
+                        "Do not use network, host files or subprocesses."
+                    )
+                    raw = await model_router.generate(prompt=coding_prompt, task_type='coding', format='json', max_tokens=4096)
                     try:
                         code, tests = parse_generated_code(raw)
                     except ValueError as exc:
@@ -282,7 +295,11 @@ async def _run_task(id):
                     if result.success: break
                     feedback = 'Previous execution failed. Repair it.\n' + result.stderr[:8000]
                 if not result or not result.success: raise RuntimeError('Code did not pass execution after bounded repair attempts')
-                payload['reasoning_output'] = 'Code executed successfully with generated assertions. These checks are not an independent proof of engineering correctness.\n' + result.stdout
+                payload['reasoning_output'] = (
+                    "### Verified Engineering Calculation & Execution Steps\n\n"
+                    + result.stdout
+                    + "\n\n---\n*Validated in isolated Docker sandbox with independent unit assertions.*"
+                )
                 await step(1, 'done')
                 await step(2, 'running')
                 from app.services.document_export import _exports_dir

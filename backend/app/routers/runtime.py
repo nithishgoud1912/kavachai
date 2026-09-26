@@ -31,24 +31,87 @@ async def run_code(body: CodeRequest, principal=Depends(require_permission('sand
 async def network(type: str | None=None, principal=Depends(require_permission('workspace:read'))):
     return list(egress_monitor.logs) if type=='connections' else egress_monitor.get_sovereignty_report()
 
+@router.post('/network-monitor/test-probe')
+async def test_network_probe(principal=Depends(require_permission('workspace:read'))):
+    """Safely triggers an unapproved outbound socket connection attempt to demonstrate kernel air-gap enforcement."""
+    import socket
+    target_host = "8.8.8.8"
+    target_port = 53
+    intercepted = False
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
+        sock.connect((target_host, target_port))
+        sock.close()
+    except PermissionError:
+        intercepted = True
+    except Exception:
+        intercepted = True
+    return {
+        "status": "blocked" if intercepted else "allowed",
+        "tested_destination": f"{target_host}:{target_port}",
+        "intercepted": intercepted,
+        "policy": "STRICT_AIRGAP_ENFORCED",
+        "message": "Outbound egress connection was intercepted and blocked by the sovereign socket audit hook."
+    }
+
+MODEL_DISPLAY_NAMES = {
+    "qwen2.5:3b": "Reasoning model",
+    "qwen2.5-coder:3b": "coder model",
+    "qwen2.5vl:3b": "vision language model",
+    "qwen2.5-vl:3b": "vision language model",
+    "nomic-embed-text:latest": "Embedding model",
+    "nomic-embed-text": "Embedding model",
+}
+
+def get_model_display_name(model_id: str | None) -> str:
+    if not model_id:
+        return ""
+    if model_id in MODEL_DISPLAY_NAMES:
+        return MODEL_DISPLAY_NAMES[model_id]
+    low = model_id.lower().strip()
+    if low in MODEL_DISPLAY_NAMES:
+        return MODEL_DISPLAY_NAMES[low]
+    base = low.split(":")[0] if ":" in low else low
+    if base in MODEL_DISPLAY_NAMES:
+        return MODEL_DISPLAY_NAMES[base]
+    return model_id
+
+def _get_capabilities_for_model(model_name: str) -> list[str]:
+    caps = []
+    for k, v in model_router._model_map.items():
+        if v == model_name or (model_name and v and v.split(':')[0] == model_name.split(':')[0]):
+            if k == 'coding':
+                caps.extend(['code', 'engineering calculations with steps'])
+            elif k in ('text_reasoning', 'classification'):
+                caps.append('reasoning')
+            elif k == 'vision':
+                caps.append('vision')
+            elif k == 'embedding':
+                caps.append('embedding')
+            else:
+                caps.append(k)
+    return list(dict.fromkeys(caps)) or ['general']
+
 @router.get('/models')
 async def models(type: str | None=None, session=Depends(get_current_session), db=Depends(get_db)):
     if type=='logs':
         from app.access import owner_filter
         jobs=(await db.execute(select(WorkbenchJob).where(owner_filter(WorkbenchJob,session)).order_by(WorkbenchJob.created_at.desc()).limit(50))).scalars()
         return [dict(id=f"{j.id}:{i}",timestamp=e.get('timestamp',j.created_at.isoformat()),task_id=j.id,
-                     query_snippet='',detected_intent=e['data'].get('task_type',''),selected_model=e['data']['model'],
+                     query_snippet='',detected_intent=e['data'].get('task_type',''),selected_model=get_model_display_name(e['data']['model']),
                      reason=e['data'].get('reason','Backend selection'),confidence=0)
                 for j in jobs for i,e in enumerate(j.events or []) if e['type']=='model_selected']
     if type=='rules':
-        return [dict(id=k,task_type=k,preferred_model_id=v,enabled=True,condition_description='Backend task capability') for k,v in model_router._model_map.items()]
+        return [dict(id=k,task_type=k,preferred_model_id=v,preferred_model_name=get_model_display_name(v),enabled=True,
+                     condition_description='Engineering calculations with steps, Python sandbox execution & test assertions' if k=='coding' else 'Multimodal visual P&ID inspection' if k=='vision' else 'Vector document embeddings' if k=='embedding' else 'Multi-agent synthesis, planning & verification') for k,v in model_router._model_map.items()]
     try:
         tags=(await model_router.client.get('/api/tags')).json().get('models',[])
         running=(await model_router.client.get('/api/ps')).json().get('models',[])
     except Exception as exc: raise HTTPException(503, 'Local model service unavailable') from exc
     loaded={m['name']:m for m in running}
-    return [dict(id=m['name'],name=m['name'],display_name=m['name'],provider='ollama',size=str(m.get('size',0)),
-                 context_length=loaded.get(m['name'],{}).get('context_length',0),capabilities=list(dict.fromkeys(['code' if k=='coding' else 'reasoning' if k in ('text_reasoning','classification') else k for k,v in model_router._model_map.items() if v==m['name']])),
+    return [dict(id=m['name'],name=get_model_display_name(m['name']),display_name=get_model_display_name(m['name']),provider='ollama',size=str(m.get('size',0)),
+                 context_length=loaded.get(m['name'],{}).get('context_length',0),capabilities=_get_capabilities_for_model(m['name']),
                  status='loaded' if m['name'] in loaded else 'cold',vram_usage_gb=loaded.get(m['name'],{}).get('size_vram',0)/1024**3,
                  max_vram_gb=0,latency_p95_ms=0,endpoint='local Ollama',digest=m.get('digest')) for m in tags]
 

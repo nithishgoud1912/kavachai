@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { getModelDisplayName } from "@/app/utils/modelNames";
 
 interface ModelChipProps {
   model: string;
@@ -15,8 +16,9 @@ export default function ModelChip({
   size = "md",
   className = "",
 }: ModelChipProps) {
-  // Extract icon based on taskType or model name
-  const lower = (model + " " + (taskType || "")).toLowerCase();
+  const displayName = getModelDisplayName(model);
+  // Extract icon based on taskType, model name or displayName
+  const lower = (model + " " + displayName + " " + (taskType || "")).toLowerCase();
   let icon = "⚡";
   let role = "reasoning";
 
@@ -41,10 +43,10 @@ export default function ModelChip({
       className={`inline-flex items-center gap-1.5 font-mono rounded-md border border-border bg-surface-2 text-text font-medium ${
         isSm ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
       } ${className}`}
-      title={`Served locally via on-premise Ollama/vLLM runtime (${model})`}
+      title={`Served locally via on-premise Ollama runtime (${model})`}
     >
       <span className="text-xs">{icon}</span>
-      <span className="font-semibold text-text">{model}</span>
+      <span className="font-semibold text-text">{displayName}</span>
       {taskType && (
         <>
           <span className="text-text-3 font-normal">·</span>

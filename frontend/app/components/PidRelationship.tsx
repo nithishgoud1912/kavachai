@@ -58,7 +58,7 @@ export default function PidRelationship({
 
   return (
     <div className="bg-surface border border-border rounded-xl p-6 shadow-sm animate-fade-in-up-small space-y-6">
-      {/* ─── Header & Qwen2.5-VL Badge ─────────────────────────────────── */}
+      {/* ─── Header & Vision Language Model Badge ─────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-border/70">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-teal/10 border border-teal/30 flex items-center justify-center text-teal">
@@ -83,7 +83,7 @@ export default function PidRelationship({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal/10 border border-teal/30 text-teal">
             <span className="w-2 h-2 rounded-full bg-teal animate-pulse" />
-            Qwen2.5-VL Grounded
+            vision language model Grounded
           </span>
           {boundingBox && (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono bg-surface-2 border border-border text-text-2">
@@ -267,7 +267,7 @@ export default function PidRelationship({
         </div>
       </div>
 
-      {/* ─── Qwen2.5-VL Forensic Vision Observation Card ────────────────── */}
+      {/* ─── Vision Language Model Forensic Vision Observation Card ────── */}
       {visionObservation && (
         <div className="bg-surface-2/90 border border-teal/30 rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between gap-2">
@@ -276,7 +276,7 @@ export default function PidRelationship({
                 <circle cx="12" cy="12" r="3" />
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
               </svg>
-              Qwen2.5-VL Visual Forensic Observation
+              vision language model Visual Forensic Observation
             </span>
             <span className="text-[11px] font-mono text-text-3">Spatial Telemetry Grounded</span>
           </div>

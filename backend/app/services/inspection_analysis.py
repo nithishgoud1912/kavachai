@@ -326,6 +326,20 @@ def evaluate_plan(table: NumericTable, plan: CalculationPlan) -> list[dict]:
         if not value.is_finite() or abs(value) > Decimal('1e100'):
             raise ValueError('Calculation result exceeds supported range')
         result['value'] = format(value.quantize(Decimal('0.000001')).normalize(), 'f') if abs(value) < Decimal('1e20') else str(value)
+        unit_str = f" {result.get('unit')}" if result.get('unit') else ''
+        if metric.operation == 'percent_change':
+            result['steps'] = [
+                f"Step 1: Baseline at {result.get('first_date')}: {result.get('first_value')}{unit_str}",
+                f"Step 2: Endpoint at {result.get('last_date')}: {result.get('last_value')}{unit_str}",
+                f"Step 3: Formula: {result.get('formula')}",
+                f"Step 4: Computed change: {result['value']}%",
+            ]
+        else:
+            result['steps'] = [
+                f"Step 1: Evaluated {len(values)} verified data rows for column '{metric.column}'",
+                f"Step 2: Applied engineering reduction: {metric.operation.upper()}",
+                f"Step 3: Verified computed result: {result['value']}{unit_str}",
+            ]
         results.append(result)
     return results
 

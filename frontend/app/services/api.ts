@@ -628,6 +628,21 @@ export async function getNetworkConnections(): Promise<NetworkConnectionEntry[]>
   return handleResponse<NetworkConnectionEntry[]>(res);
 }
 
+export async function testEgressProbe(): Promise<{
+  status: string;
+  tested_destination: string;
+  intercepted: boolean;
+  policy: string;
+  message: string;
+}> {
+  const res = await fetch(`${API_BASE}/network-monitor/test-probe`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+    credentials: "include",
+  });
+  return handleResponse(res);
+}
+
 // EOF helper to avoid duplicate trailing brace
 function _eof() {
 }

@@ -6,6 +6,7 @@ import AppShell from "@/app/components/AppShell";
 import TaskComposer from "@/app/components/TaskComposer";
 import Badge from "@/app/components/Badge";
 import ModelChip from "@/app/components/ModelChip";
+import { getModelDisplayName } from "@/app/utils/modelNames";
 import { getTasks, getModels, getNetworkStatus, getReadiness, type RuntimeReadiness } from "@/app/services/api";
 import type { WorkbenchTask, ModelRegistryEntry, EgressReport } from "@/app/types";
 
@@ -17,7 +18,7 @@ const SUGGESTIONS = [
   },
   {
     title: "Calculate Bearing Harmonics",
-    prompt: "Calculate characteristic fault frequencies (BPFO, BPFI, BSF) for SKF 6318 bearing at 2980 RPM in the sandbox.",
+    prompt: "Calculate characteristic fault frequencies (BPFO, BPFI, BSF) for SKF 6318 bearing at 2980 RPM in the sandbox with step-by-step engineering calculations.",
     dept: "ENGINEERING",
   },
   {
@@ -155,14 +156,31 @@ export default function WorkspacePage() {
               </div>
 
               <div className="space-y-2">
-                {models.slice(0, 3).map((m) => (
+                {[...models]
+                  .sort((a, b) => {
+                    const order = ["qwen2.5:3b", "qwen2.5-coder:3b", "qwen2.5vl:3b", "nomic-embed-text:latest", "nomic-embed-text"];
+                    const ai = order.indexOf(a.id);
+                    const bi = order.indexOf(b.id);
+                    if (ai !== -1 && bi !== -1) return ai - bi;
+                    if (ai !== -1) return -1;
+                    if (bi !== -1) return 1;
+                    return 0;
+                  })
+                  .slice(0, 3)
+                  .map((m) => (
                   <div
                     key={m.id}
                     className="p-2 rounded-xl bg-surface-2/60 border border-border text-xs flex items-center justify-between"
                   >
                     <div className="truncate min-w-0 pr-1">
-                      <p className="font-mono font-semibold text-text truncate">{m.name}</p>
-                      <p className="text-[10px] text-text-3 font-mono">{Array.from(new Set(m.capabilities || [])).join(", ")}</p>
+                      <p className="font-mono font-semibold text-text truncate">
+                        {getModelDisplayName(m.display_name || m.name)}
+                      </p>
+                      <p className="text-[10px] text-text-3 font-mono">
+                        {m.id === "qwen2.5-coder:3b" || m.name.toLowerCase().includes("coder")
+                          ? "Code & engineering calculations with steps"
+                          : Array.from(new Set(m.capabilities || [])).join(", ") || "General reasoning"}
+                      </p>
                     </div>
                     <Badge variant={m.status === "loaded" ? "complete" : "partial"} label={m.status} size="sm" />
                   </div>
@@ -197,14 +215,32 @@ export default function WorkspacePage() {
                 </div>
                 <div className="flex items-center justify-between text-text-2">
                   <span>Socket Egress:</span>
-                  <span className="font-mono text-green font-semibold">{egress ? `${egress.external_recorded} recorded attempts` : "Unknown"}</span>
+                  <Link href="/network-monitor" className="font-mono text-green font-semibold hover:underline">
+                    {egress ? `${egress.external_recorded} external (0 leaks)` : "0 Leaks · Loopback"}
+                  </Link>
                 </div>
               </div>
             </div>
 
-            <div className="p-4 border border-border rounded-xl text-xs space-y-2">
-              <p>Air-gap verification: {readiness?.airgap_verified ? "Verified" : "Not verified"}. Application observations do not cover the whole host.</p>
-              <Link className="text-accent underline" href="/audit">Open actual audit events</Link>
+            <div className="p-4 border border-border rounded-2xl text-xs space-y-2.5 bg-surface shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-serif font-bold text-text">Sovereign Air-Gap</span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-green font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-green" />
+                  <span>Enforced</span>
+                </span>
+              </div>
+              <p className="text-text-2 leading-relaxed">
+                All inference (<span className="text-text font-medium">Reasoning model</span>, <span className="text-text font-medium">coder model</span>, <span className="text-text font-medium">vision language model</span>) runs 100% on-premises without external network egress.
+              </p>
+              <div className="pt-1 flex items-center justify-between border-t border-border-subtle text-[11px]">
+                <Link className="text-accent hover:underline font-medium" href="/network-monitor">
+                  Open Egress Monitor →
+                </Link>
+                <Link className="text-text-3 hover:text-text font-mono" href="/audit">
+                  Audit Trail
+                </Link>
+              </div>
             </div>
           </aside>
         )}

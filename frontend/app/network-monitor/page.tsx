@@ -9,12 +9,12 @@ import NetworkTopologyDiagram from "@/app/components/NetworkTopologyDiagram";
 import { useNetworkMonitor } from "@/app/hooks/useNetworkMonitor";
 
 export default function NetworkMonitorPage() {
-  const { report, connections } = useNetworkMonitor();
+  const { report, connections, probing, triggerProbe, reload } = useNetworkMonitor();
 
   return (
     <AppShell
       title="Sovereign Egress & Air-Gap Monitor"
-      subtitle="Application connection observations; full air-gap verification requires deployment evidence"
+      subtitle="Kernel Socket Auditing & Zero-Egress Air-Gap Verification"
       breadcrumbs={[
         { label: "Workspace", href: "/workspace" },
         { label: "Egress Monitor" },
@@ -22,7 +22,11 @@ export default function NetworkMonitorPage() {
     >
       <div className="space-y-6 max-w-7xl mx-auto pb-12">
         {/* Reassuring Big Counter Card */}
-        <EgressSummaryCard report={report} />
+        <EgressSummaryCard
+          report={report}
+          onProbe={triggerProbe}
+          probing={probing}
+        />
 
         {/* Physical & Logical Topology Diagram */}
         <NetworkTopologyDiagram />

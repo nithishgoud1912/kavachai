@@ -44,7 +44,7 @@ export default function IngestionPipelineVisualizer({
     {
       id: 4,
       name: "Tier 4: Multimodal VLM Fallback",
-      engine: "Qwen 2.5 VL (Local 3B)",
+      engine: "vision language model (Local 3B)",
       description: "Complex handwritten annotations, P&ID symbols & low-contrast sketches",
       status: currentTier === 4 ? "active" : "standby",
     },

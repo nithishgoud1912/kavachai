@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import type { RoutingRule } from "@/app/types";
+import { getModelDisplayName } from "@/app/utils/modelNames";
 
 interface RoutingRulesPanelProps {
   rules: RoutingRule[];
@@ -65,11 +66,11 @@ export default function RoutingRulesPanel({
                 <span className="font-semibold text-xs text-text">{rule.task_type}</span>
                 <span className="text-[10px] text-text-3 font-mono">→</span>
                 <span className="font-mono text-xs font-bold text-accent bg-accent/10 px-2 py-0.5 rounded">
-                  {rule.preferred_model_id}
+                  {getModelDisplayName(rule.preferred_model_id)}
                 </span>
                 {rule.fallback_model_id && (
                   <span className="text-[10px] text-text-3 font-mono">
-                    (fallback: {rule.fallback_model_id})
+                    (fallback: {getModelDisplayName(rule.fallback_model_id)})
                   </span>
                 )}
               </div>
@@ -106,11 +107,11 @@ export default function RoutingRulesPanel({
                   onChange={(e) => setNewRule({ ...newRule, preferred_model_id: e.target.value })}
                   className="w-full p-2.5 rounded-lg border border-border bg-bg-base focus:bg-surface focus:outline-none focus:ring-1 focus:ring-accent font-mono"
                 >
-                  <option value="qwen2.5:3b">qwen2.5:3b (General Reasoning)</option>
-                  <option value="qwen2.5-coder:3b">qwen2.5-coder:3b (Code & Calculations)</option>
-                  <option value="qwen2.5vl:3b">qwen2.5vl:3b (Multimodal P&ID Vision)</option>
+                  <option value="qwen2.5:3b">Reasoning model</option>
+                  <option value="qwen2.5-coder:3b">coder model (engineering calculations with steps)</option>
+                  <option value="qwen2.5vl:3b">vision language model</option>
                   <option value="codellama:7b">codellama:7b (Python AST)</option>
-                  <option value="nomic-embed-text">nomic-embed-text (Vector RAG)</option>
+                  <option value="nomic-embed-text">Embedding model</option>
                 </select>
               </div>
               <div>

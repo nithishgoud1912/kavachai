@@ -3,6 +3,7 @@
 import React from "react";
 import type { ModelRegistryEntry } from "@/app/types";
 import Badge from "./Badge";
+import { getModelDisplayName, cleanModelSubtitle } from "@/app/utils/modelNames";
 
 interface ModelRegistryTableProps {
   models: ModelRegistryEntry[];
@@ -48,9 +49,11 @@ export default function ModelRegistryTable({
                 <td className="py-3 font-mono font-semibold text-text">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-accent" />
-                    <span>{m.display_name || m.name}</span>
+                    <span>{getModelDisplayName(m.display_name || m.name)}</span>
                   </div>
-                  <span className="text-[10px] text-text-3 font-normal block pl-4">{m.id}</span>
+                  {cleanModelSubtitle(m.id) && (
+                    <span className="text-[10px] text-text-3 font-normal block pl-4">{cleanModelSubtitle(m.id)}</span>
+                  )}
                 </td>
                 <td className="py-3">
                   <div className="flex flex-wrap gap-1">
